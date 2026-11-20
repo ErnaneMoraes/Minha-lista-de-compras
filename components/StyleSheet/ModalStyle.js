@@ -10,6 +10,7 @@ import { AppColors } from './Colors';
     },
     modalView: {
         width: '90%',
+        maxWidth: 460,
         maxHeight: '85%',
         backgroundColor: AppColors.inputBackground, 
         borderRadius: 20,
@@ -29,6 +30,11 @@ import { AppColors } from './Colors';
         fontWeight: 'bold',
         marginBottom: 20,
         color: AppColors.darkText,
+    },
+    modalText: {
+        fontSize: 16,
+        color: AppColors.textoEscuro,
+        textAlign: 'center',
     },
     modalInputContainer: { 
         width: '100%',

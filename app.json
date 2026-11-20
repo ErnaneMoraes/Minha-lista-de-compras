@@ -1,29 +1,48 @@
 {
   "expo": {
-    "name": "Sistema ARALEVE",
-    "slug": "snack-13d1c9a6-44da-419c-981e-d818262e8140",
+    "name": "Minha Lista de Compras",
+    "slug": "minha-lista-de-compras",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./components/common/assets/ARALEVE.png",
+    "icon": "./assets/favicon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
-      "image": "./components/common/assets/ARALEVE.png",
+      "image": "./assets/favicon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#15803D"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Precisamos da câmera para fotografar etiquetas de preço e preencher seus itens automaticamente.",
+        "NSPhotoLibraryUsageDescription": "Precisamos acessar suas fotos para ler etiquetas de preço salvas."
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./components/common/assets/ARALEVE.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/favicon.png",
+        "backgroundColor": "#15803D"
       },
-      "package": "basic.app.sistemas.moveis"
+      "package": "com.minhalistadecompras.app",
+      "permissions": [
+        "CAMERA"
+      ]
     },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Permitir que o aplicativo use a câmera para ler etiquetas de preço."
+        }
+      ]
+    ],
     "web": {
-      "favicon": "./components/common/assets/ARALEVE.png"
+      "favicon": "./assets/favicon.png",
+      "name": "Minha Lista de Compras",
+      "shortName": "Minha Lista",
+      "description": "Aplicativo para gerenciar suas listas de compras e controlar seus gastos no supermercado.",
+      "bundler": "metro"
     },
     "extra": {
       "eas": {
