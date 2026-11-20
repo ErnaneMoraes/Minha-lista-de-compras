@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "Sistema ARALEVE",
+    "slug": "snack-13d1c9a6-44da-419c-981e-d818262e8140",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./components/common/assets/ARALEVE.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./components/common/assets/ARALEVE.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./components/common/assets/ARALEVE.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "basic.app.sistemas.moveis"
+    },
+    "web": {
+      "favicon": "./components/common/assets/ARALEVE.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "21be7c3c-3e18-4808-b686-519707891340"
+      }
+    }
+  }
+}

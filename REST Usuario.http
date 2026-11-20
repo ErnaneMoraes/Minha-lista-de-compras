@@ -1,0 +1,46 @@
+### Configurações locais
+@baseUrl = https://nova-api-486376460769.us-central1.run.app
+@token = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJsb2dpbiI6MSwiaWF0IjoxNzQ5MDY1MjEyLCJleHAiOjE3NDkxMDg0MTJ9.c1B5qE8Z8eaMNvyY_Y1boq_Sbe0evcl0iWOtJzsVIjY
+
+### Teste de Login
+POST {{baseUrl}}/login
+Content-Type: application/json
+
+{
+    "login": "ernane",
+    "senha": "Unileste"
+}
+
+### DELETE USUÁRIOS - Deletar usuários (requer token)
+DELETE {{baseUrl}}/usuarios/92
+Content-Type: application/json
+x-access-token: {{token}}
+
+### GET USUÁRIOS - Listar usuários (requer token)
+GET {{baseUrl}}/usuarios
+Content-Type: application/json
+x-access-token: {{token}}
+
+### PUT USUÁRIOS - Altera usuários (requer token)
+PUT {{baseUrl}}/usuarios/92
+Content-Type: application/json
+x-access-token: {{token}}
+
+{
+  "nome": "Ernane",
+  "login": "ernane.moraes",
+  "senha": "123456",
+  "nivelAcesso": 1
+}
+
+### CRIAR USUARIO
+POST {{baseUrl}}/usuarios
+Content-Type: application/json
+x-access-token: {{token}}
+
+{
+  "nome": "João Silva",
+  "login": "joaojjoaojoaojoaooao.sijoaojoaolva",
+  "senha": "123456",
+  "nivelAcesso": "1"
+}
