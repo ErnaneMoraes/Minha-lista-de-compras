@@ -6,17 +6,11 @@
     "orientation": "portrait",
     "icon": "./assets/favicon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/favicon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#15803D"
-    },
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "Precisamos da câmera para fotografar etiquetas de preço e preencher seus itens automaticamente.",
-        "NSPhotoLibraryUsageDescription": "Precisamos acessar suas fotos para ler etiquetas de preço salvas."
+        "NSCameraUsageDescription": "Permitir que o app acesse a câmera para ler etiquetas de preço",
+        "NSPhotoLibraryUsageDescription": "Permitir que o app acesse suas fotos para ler etiquetas de preço"
       }
     },
     "android": {
@@ -24,18 +18,31 @@
         "foregroundImage": "./assets/favicon.png",
         "backgroundColor": "#15803D"
       },
-      "package": "com.minhalistadecompras.app",
+      "package": "com.moraesernane.minhalistadecompras",
       "permissions": [
-        "CAMERA"
+        "android.permission.CAMERA"
       ]
     },
     "plugins": [
       [
         "expo-image-picker",
         {
-          "cameraPermission": "Permitir que o aplicativo use a câmera para ler etiquetas de preço."
+          "cameraPermission": "Permitir que o app acesse a câmera para ler etiquetas de preço",
+          "photosPermission": "Permitir que o app acesse suas fotos para ler etiquetas de preço"
         }
-      ]
+      ],
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./node_modules/@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/FontAwesome6_Regular.ttf",
+            "./node_modules/@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/FontAwesome6_Solid.ttf",
+            "./node_modules/@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/FontAwesome6_Brands.ttf"
+          ]
+        }
+      ],
+      "expo-asset",
+      "expo-status-bar"
     ],
     "web": {
       "favicon": "./assets/favicon.png",
@@ -46,7 +53,7 @@
     },
     "extra": {
       "eas": {
-        "projectId": "21be7c3c-3e18-4808-b686-519707891340"
+        "projectId": "7fa8bc46-fbf0-4ebd-b6ad-d35ae91e35ae"
       }
     }
   }

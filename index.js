@@ -1,8 +1,35 @@
-import { registerRootComponent } from 'expo';
+const ReactNative = require('react-native');
 
-import App from './App';
+try {
+  Object.defineProperty(ReactNative, 'InteractionManager', {
+    configurable: true,
+    enumerable: false,
+    writable: true,
+    value: {
+      runAfterInteractions: (task) => {
+        const timer = setTimeout(() => {
+          if (typeof task === 'function') {
+            task();
+          } else if (task && typeof task.gen === 'function') {
+            task.gen();
+          }
+        }, 0);
+        return {
+          then: (cb) => Promise.resolve().then(cb),
+          done: (cb) => Promise.resolve().then(cb),
+          cancel: () => clearTimeout(timer),
+        };
+      },
+      createInteractionHandle: () => 1,
+      clearInteractionHandle: () => {},
+      setDeadline: () => {},
+    },
+  });
+} catch {
+  // Ignore if property cannot be redefined
+}
 
-// registerRootComponent calls AppRegistry.registerComponent('main', () => App);
-// It also ensures that whether you load the app in Expo Go or in a native build,
-// the environment is set up appropriately
+const { registerRootComponent } = require('expo');
+const App = require('./App').default;
+
 registerRootComponent(App);

@@ -9,7 +9,11 @@ dist/
 web-build/
 expo-env.d.ts
 
-# Native
+# Native folders (managed by Expo Prebuild / CNG)
+/android
+/ios
+
+# Native artifacts
 *.orig.*
 *.jks
 *.p8

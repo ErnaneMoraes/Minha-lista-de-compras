@@ -8,6 +8,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Platform,
+  Alert,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { FontAwesome6 } from '@expo/vector-icons';
@@ -70,6 +71,58 @@ export default function ListaDetalhesScreen({ route, navigation }) {
     const unsubscribe = navigation.addListener('focus', loadList);
     return unsubscribe;
   }, [navigation, loadList]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    let isMounted = true;
+    (async () => {
+      try {
+        if (typeof ImagePicker.getPendingResultAsync === 'function') {
+          const pending = await ImagePicker.getPendingResultAsync();
+          if (isMounted && pending && !pending.canceled && pending.assets && pending.assets[0]) {
+            const asset = pending.assets[0];
+            await processLabelImage({ uri: asset.uri, base64: asset.base64 });
+          }
+        }
+      } catch (err) {
+        console.warn('Erro ao recuperar resultado pendente da câmera:', err);
+      }
+    })();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const openGalleryFallback = async () => {
+    try {
+      const libPerm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!libPerm.granted) {
+        setBanner({
+          type: 'error',
+          text: 'Permissão da galeria negada. Habilite o acesso às fotos nas configurações.',
+        });
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 0.85,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets[0]) {
+        const asset = result.assets[0];
+        await processLabelImage({ uri: asset.uri, base64: asset.base64 });
+      }
+    } catch (galleryError) {
+      const msg = galleryError?.message || String(galleryError);
+      setBanner({
+        type: 'error',
+        text: `Não foi possível abrir a galeria: ${msg}`,
+      });
+    }
+  };
 
   const processLabelImage = async ({ uri, base64 }) => {
     if (!uri) return;
@@ -136,18 +189,30 @@ export default function ListaDetalhesScreen({ route, navigation }) {
     }
 
     try {
-      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      const currentPerm = await ImagePicker.getCameraPermissionsAsync();
+      const permission = currentPerm.granted
+        ? currentPerm
+        : await ImagePicker.requestCameraPermissionsAsync();
+
       if (!permission.granted) {
         setBanner({
           type: 'error',
           text: 'Permissão da câmera negada. Habilite a câmera nas configurações do aparelho.',
         });
+        Alert.alert(
+          'Permissão da Câmera',
+          'A permissão para usar a câmera foi negada. Deseja escolher uma foto da etiqueta pela galeria?',
+          [
+            { text: 'Cancelar', style: 'cancel' },
+            { text: 'Abrir Galeria', onPress: openGalleryFallback },
+          ]
+        );
         return;
       }
 
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ['images'],
-        allowsEditing: true,
+        allowsEditing: false,
         quality: 0.85,
         base64: true,
       });
@@ -158,10 +223,19 @@ export default function ListaDetalhesScreen({ route, navigation }) {
       }
     } catch (error) {
       console.error('Erro ao abrir câmera:', error);
+      const reason = error?.message || String(error);
       setBanner({
         type: 'error',
-        text: 'Não foi possível abrir a câmera neste dispositivo.',
+        text: `Erro ao abrir a câmera: ${reason}`,
       });
+      Alert.alert(
+        'Não foi possível abrir a câmera',
+        `Motivo: ${reason}\n\nDeseja escolher uma foto da etiqueta na galeria do aparelho?`,
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Escolher da Galeria', onPress: openGalleryFallback },
+        ]
+      );
     }
   };
 

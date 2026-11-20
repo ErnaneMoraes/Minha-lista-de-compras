@@ -1,10 +1,17 @@
 import 'react-native-gesture-handler';
-import { TouchableOpacity, View } from 'react-native';
+import React from 'react';
+import { ActivityIndicator, TouchableOpacity, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { useFonts } from 'expo-font';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
-import { FontAwesome6 } from '@expo/vector-icons';
+import {
+  FontAwesome6,
+  FontAwesome,
+  Ionicons,
+  MaterialIcons,
+} from '@expo/vector-icons';
 import * as HeaderConfig from './components/StyleSheet/headerStyle';
 import { AppColors } from './components/StyleSheet/Colors';
 
@@ -16,6 +23,31 @@ import RelatorioScreen from './src/pages/RelatorioScreen';
 const Stack = createStackNavigator();
 
 export default function App() {
+  const [fontsLoaded, fontError] = useFonts({
+    ...FontAwesome6.font,
+    ...FontAwesome.font,
+    ...Ionicons.font,
+    ...MaterialIcons.font,
+  });
+
+  if (!fontsLoaded && !fontError) {
+    return (
+      <SafeAreaProvider>
+        <StatusBar style="light" />
+        <View
+          style={{
+            flex: 1,
+            justifyContent: 'center',
+            alignItems: 'center',
+            backgroundColor: AppColors.background,
+          }}
+        >
+          <ActivityIndicator size="large" color={AppColors.principal} />
+        </View>
+      </SafeAreaProvider>
+    );
+  }
+
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />
