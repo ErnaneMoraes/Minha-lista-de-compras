@@ -40,23 +40,39 @@
             },
             {
               "scheme": "content",
+              "mimeType": "application/zip"
+            },
+            {
+              "scheme": "file",
+              "mimeType": "application/zip"
+            },
+            {
+              "scheme": "content",
+              "mimeType": "application/x-zip-compressed"
+            },
+            {
+              "scheme": "file",
+              "mimeType": "application/x-zip-compressed"
+            },
+            {
+              "scheme": "content",
               "mimeType": "text/plain",
-              "pathPattern": ".*\\.json"
+              "pathPattern": ".*\\.(json|zip)"
             },
             {
               "scheme": "file",
               "mimeType": "text/plain",
-              "pathPattern": ".*\\.json"
+              "pathPattern": ".*\\.(json|zip)"
             },
             {
               "scheme": "content",
               "mimeType": "application/octet-stream",
-              "pathPattern": ".*\\.json"
+              "pathPattern": ".*\\.(json|zip)"
             },
             {
               "scheme": "file",
               "mimeType": "application/octet-stream",
-              "pathPattern": ".*\\.json"
+              "pathPattern": ".*\\.(json|zip)"
             }
           ]
         }

@@ -1006,7 +1006,7 @@ export default function CameraCaptureModal({
           >
             <InteractiveCropCanvas
               photo={capturedPhoto}
-              mode={cameraCaptureMode}
+              mode="partial"
               onCropMetaReady={(meta) => {
                 cropMetaRef.current = meta;
               }}
@@ -1040,13 +1040,7 @@ export default function CameraCaptureModal({
                       borderColor: colors.borderColor,
                     },
                   ]}
-                  onPress={() => {
-                    if (cameraCaptureMode === 'full') {
-                      setStage('preview');
-                    } else {
-                      onClose();
-                    }
-                  }}
+                  onPress={onClose}
                 >
                   <Text
                     style={[
@@ -1054,7 +1048,7 @@ export default function CameraCaptureModal({
                       { color: colors.textoEscuro, marginLeft: 0 },
                     ]}
                   >
-                    {cameraCaptureMode === 'full' ? 'Voltar' : 'Cancelar'}
+                    Cancelar
                   </Text>
                 </TouchableOpacity>
 

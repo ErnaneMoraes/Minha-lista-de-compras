@@ -54,13 +54,23 @@ O **Minha Lista de Compras** resolve isso ao oferecer:
 - **Gráficos interativos em SVG:** Alternância entre **Gráfico de Barras** (evolução financeira) e **Gráfico de Pizza** (distribuição detalhada por categoria com paleta de cores dedicada).
 - **Indicadores financeiros:** Total gasto, média por compra e quantidade de compras finalizadas no período selecionado.
 
-### 5. Backup Seletivo, Compartilhamento e Integração Android
-- **Exportação Seletiva em `.json`:** Escolha exportar **Tudo**, **Apenas Listas de Compras** ou **Apenas Lembretes** — ideal tanto para backup quanto para compartilhar uma lista com outra pessoa.
-- **Importação com Detecção Automática:** Valida a estrutura do arquivo e restaura apenas o escopo contido no backup sem apagar o restante dos dados.
-- **Integração nativa Android ("Abrir com..."):** Arquivos `.json` recebidos por mensageiros ou gerenciadores de arquivos podem ser abertos diretamente no aplicativo para importação imediata.
+### 5. Fotos das Etiquetas Compactadas, Retenção e Galeria
+- **Armazenamento Compactado Local:** Ao capturar uma etiqueta pela câmera/OCR (com salvamento ativado), o recorte é redimensionado (largura máx. `600px`) e salvo em JPEG leve (`compress: 0.65`, ~25–50 KB) em `tag_photos/`, guardando apenas a referência no item da lista.
+- **Visualização Rápida nos Itens:** Produtos com foto exibem um ícone discreto de imagem no card e um botão **"Ver foto da etiqueta"** no modal de edição, abrindo visualização ampliável com detalhes do produto.
+- **Política de Retenção Automática e Exclusão em Cascata:** Configurável no Onboarding inicial e em **Configurações > Fotos das Etiquetas**, com limpeza automática opcional após **30, 60, 90 ou 120 dias** e remoção automática dos arquivos `.jpg` quando o item ou a lista são excluídos.
+- **Galeria de Etiquetas (`Configurações > Fotos das Etiquetas`):** Busca por nome do produto/lista, filtros por período (**Todas**, **Hoje**, **Últimos 7 dias**, **Últimos 30 dias**, **Selecionar mês**), visualização em tela cheia, seleção múltipla e exclusão em lote ou total com confirmação obrigatória (`ConfirmModal`).
 
-### 6. Experiência do Usuário, Multi-Temas, Onboarding e Documentação Interna
-- **Sistema Multi-Temas com Geometria Adaptativa (7 temas):** Seletor visual em **Configurações** com pré-visualização em dois tons e troca instantânea de paleta de cores, arredondamento de cantos e espessura de bordas:
+### 6. Backup Compactado (`.zip` / `.json`), Exclusão Granular e Integração Android
+- **4 Modos de Exportação:**
+  - **Backup Completo (`.zip`):** Empacota `backup.json` (listas, histórico e lembretes) + todas as fotos das etiquetas em `etiquetas/*.jpg` usando `jszip`.
+  - **Apenas Fotos das Etiquetas (`.zip`):** Exporta todas as fotos salvas junto a um `photos_manifest.json` com metadados dos produtos.
+  - **Apenas Listas de Compras (`.json`)** e **Apenas Lembretes (`.json`):** Arquivos leves ideais para compartilhar listas rapidamente.
+- **Importação Automática (`.zip` e `.json`) + Android "Abrir com...":** Detecta automaticamente o formato do arquivo (seja pelo seletor nas Configurações ou abrindo diretamente um `.zip` / `.json` no Android), restaura as imagens para `tag_photos/` e revincula os itens após confirmação.
+- **Exclusão Granular (`Configurações > Excluir Dados`):** Permite apagar separadamente **Todas as Fotos das Etiquetas**, **Todas as Listas de Compras**, **Todas as Listas de Lembretes** ou **Todos os Dados do Aplicativo**, sempre com `ConfirmModal` e botão de atalho **"Fazer Backup Antes"** nas exclusões em massa.
+
+### 7. Experiência do Usuário, Multi-Temas, Onboarding e Documentação Interna
+- **Configurações em Acordeões Recolhíveis:** Seções organizadas em acordeões (**Temas**, **Fotos das Etiquetas**, **Backup de Dados** e **Suporte e Informações**) que iniciam recolhidos para navegação limpa.
+- **Sistema Multi-Temas com Geometria Adaptativa (7 temas + Personalizado):** Lista vertical com amostras bicolores e construtor completo do tema **Personalizado** (Modo Base, 12 cores principais, estilo das bordas e espessura do contorno):
   - **Claro Padrão** e **Noturno Padrão** (cantos suaves)
   - **AMOLED Escuro** (preto puro `#000000` com esmeralda)
   - **Rose Quartz** (tons suaves de rosa com cantos extra-arredondados)
@@ -126,7 +136,8 @@ Minha lista de compras/
 │   │       ├── ItemFormModal.js              # Formulário de produto/lembrete com máscara BRL
 │   │       ├── ListFormModal.js              # Formulário de lista, orçamento e data
 │   │       ├── OcrProgressModal.js           # Progresso visual da leitura OCR
-│   │       └── SettingsModal.js              # Configurações (Multi-Temas, Backup, Ajuda e Sobre)
+│   │       ├── SettingsModal.js              # Configurações em acordeões (Temas, Fotos, Backup, Suporte)
+│   │       └── TagPhotoPreviewModal.js       # Visualizador ampliável de fotos das etiquetas
 │   └── StyleSheet/                           # Paleta e estilos globais
 └── src/
     ├── context/
@@ -144,11 +155,14 @@ Minha lista de compras/
     │   │   └── OnboardingScreen.js           # Fluxo guiado de boas-vindas no primeiro acesso
     │   ├── Settings/
     │   │   ├── AjudaScreen.js                # Guia passo a passo completo para usuários
+    │   │   ├── GaleriaEtiquetasScreen.js     # Galeria de fotos das etiquetas com busca, filtros e exclusão
     │   │   └── SobreScreen.js                # Informações do app, privacidade 100% offline e GitHub
     │   └── RelatorioScreen.js                # Resumo de Gastos com gráficos (Barras/Pizza) e filtros
     ├── services/
+    │   ├── backupArchiveService.js           # Exportação e importação de backups compactados (.zip e .json)
     │   ├── labelParser.js                    # Extração de preço(s), nome e unidade da etiqueta
     │   ├── tagPreprocess.js                  # Pré-processamento de imagem da etiqueta
+    │   ├── tagPhotoStorage.js                # Compactação, retenção, estatísticas e backup de fotos
     │   ├── labelOcr.native.js                # OCR para Android/iOS
     │   └── labelOcr.web.js                   # OCR para Web
     ├── storage/

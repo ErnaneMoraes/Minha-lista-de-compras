@@ -13,7 +13,9 @@ import ModalStyle from '../../StyleSheet/ModalStyle';
 import globalStyles from '../../StyleSheet/Styles';
 import CancelButton from '../../common/Buttons/CancelButton';
 import SaveButton from '../../common/Buttons/SaveButton';
+import TagPhotoPreviewModal from './TagPhotoPreviewModal';
 import { useAppSettings } from '../../../src/context/AppSettingsContext';
+import { getTagPhotoUri } from '../../../src/services/tagPhotoStorage';
 import {
   CATEGORIES,
   UNITS,
@@ -34,10 +36,12 @@ export default function ItemFormModal({
   ocrHint = '',
   requirePrice = true,
   customTitle = null,
+  listName = '',
   onClose,
   onSubmit,
 }) {
-  const { colors } = useAppSettings();
+  const { colors, radiusCard, radiusButton, radiusInput, borderWidth } =
+    useAppSettings();
   const [name, setName] = useState('');
   const [quantity, setQuantity] = useState('1');
   const [unit, setUnit] = useState('un');
@@ -46,6 +50,7 @@ export default function ItemFormModal({
   const [priceMasked, setPriceMasked] = useState('');
   const [description, setDescription] = useState('');
   const [error, setError] = useState('');
+  const [showPhotoPreview, setShowPhotoPreview] = useState(false);
 
   useEffect(() => {
     loadLearnedCategories();
@@ -153,15 +158,26 @@ export default function ItemFormModal({
       description: description.trim(),
       notes: description.trim(),
       sourceReminderId: initialItem?.sourceReminderId || null,
+      ...(initialItem?.photoFilename
+        ? {
+            photoFilename: initialItem.photoFilename,
+            photoCapturedAt: initialItem.photoCapturedAt || null,
+          }
+        : {}),
     });
   };
 
   const modalTitle =
     customTitle || (mode === 'manual' ? 'Adicionar Produto' : 'Editar Item');
+  const savedPhotoUri = initialItem?.photoFilename
+    ? getTagPhotoUri(initialItem.photoFilename)
+    : null;
   const inputThemeStyle = {
     backgroundColor: colors.inputBackground,
     borderColor: colors.borderColor,
     color: colors.textoEscuro,
+    borderRadius: radiusInput,
+    borderWidth,
   };
 
   return (
@@ -178,13 +194,51 @@ export default function ItemFormModal({
             {
               backgroundColor: colors.card,
               borderColor: colors.borderColor,
-              borderWidth: 1,
+              borderWidth,
+              borderRadius: radiusCard,
             },
           ]}
         >
           <Text style={[ModalStyle.modalTitle, { color: colors.textoEscuro }]}>
             {modalTitle}
           </Text>
+
+          {savedPhotoUri ? (
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => setShowPhotoPreview(true)}
+              style={{
+                width: '100%',
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingVertical: 9,
+                paddingHorizontal: 12,
+                marginBottom: 10,
+                backgroundColor: colors.verdeSuave,
+                borderColor: colors.principal,
+                borderWidth: 1,
+                borderRadius: radiusButton,
+              }}
+              accessibilityLabel="Ver foto da etiqueta salva"
+            >
+              <FontAwesome6
+                name="image"
+                size={14}
+                color={colors.badgeText || colors.principal}
+                style={{ marginRight: 8 }}
+              />
+              <Text
+                style={{
+                  fontSize: 13.5,
+                  fontWeight: 'bold',
+                  color: colors.badgeText || colors.principal,
+                }}
+              >
+                Ver foto da etiqueta
+              </Text>
+            </TouchableOpacity>
+          ) : null}
 
           {mode === 'ocr' ? (
             <View
@@ -509,6 +563,16 @@ export default function ItemFormModal({
           </View>
         </View>
       </View>
+
+      <TagPhotoPreviewModal
+        visible={showPhotoPreview}
+        photoUri={savedPhotoUri}
+        productName={name || initialItem?.name || 'Produto'}
+        listName={listName}
+        price={parseBRLInput(priceMasked) || Number(initialItem?.price) || 0}
+        capturedAt={initialItem?.photoCapturedAt || null}
+        onClose={() => setShowPhotoPreview(false)}
+      />
     </Modal>
   );
 }

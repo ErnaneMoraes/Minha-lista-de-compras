@@ -22,6 +22,7 @@ import {
   NavigationContainer,
   DefaultTheme,
   DarkTheme,
+  useNavigation,
   useNavigationContainerRef,
 } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
@@ -36,12 +37,12 @@ import SettingsModal from './components/modals/ShoppingModals/SettingsModal';
 import ConfirmModal from './components/modals/ShoppingModals/ConfirmModal';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import {
-  validateBackupPayload,
   importBackupPayload,
   formatDateBR,
   loadOnboardingCompleted,
   saveOnboardingCompleted,
 } from './src/storage/shoppingStorage';
+import { parseBackupArchiveFromUri } from './src/services/backupArchiveService';
 
 import ListasScreen from './src/pages/Listas/ListasScreen';
 import ListaDetalhesScreen from './src/pages/Listas/ListaDetalhesScreen';
@@ -51,9 +52,37 @@ import RelatorioScreen from './src/pages/RelatorioScreen';
 import OnboardingScreen from './src/pages/Onboarding/OnboardingScreen';
 import AjudaScreen from './src/pages/Settings/AjudaScreen';
 import SobreScreen from './src/pages/Settings/SobreScreen';
+import GaleriaEtiquetasScreen from './src/pages/Settings/GaleriaEtiquetasScreen';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
+
+function HeaderMainTabActions() {
+  const { openSettings, colors } = useAppSettings();
+  const navigation = useNavigation();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 4 }}>
+      <TouchableOpacity
+        onPress={() => navigation.navigate('GaleriaEtiquetas')}
+        style={{ paddingHorizontal: 10, paddingVertical: 8 }}
+        accessibilityLabel="Abrir Galeria de Etiquetas"
+      >
+        <FontAwesome6
+          name="photo-film"
+          size={18}
+          color={colors.textoPrincipal}
+        />
+      </TouchableOpacity>
+      <TouchableOpacity
+        onPress={openSettings}
+        style={{ paddingHorizontal: 10, paddingVertical: 8 }}
+        accessibilityLabel="Abrir Configurações"
+      >
+        <FontAwesome6 name="gear" size={19} color={colors.textoPrincipal} />
+      </TouchableOpacity>
+    </View>
+  );
+}
 
 function HeaderSettingsButton() {
   const { openSettings, colors } = useAppSettings();
@@ -109,7 +138,7 @@ function MainTabs() {
           fontWeight: 'bold',
           fontSize: 19,
         },
-        headerRight: () => <HeaderSettingsButton />,
+        headerRight: () => <HeaderMainTabActions />,
         tabBarActiveTintColor: colors.principal,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: {
@@ -213,7 +242,8 @@ async function readExternalJsonUri(uri) {
 }
 
 function RootNavigator() {
-  const { darkMode, colors, notifyDataRestored } = useAppSettings();
+  const { darkMode, colors, notifyDataRestored, closeSettings } =
+    useAppSettings();
   const navigationRef = useNavigationContainerRef();
   const [onboardingChecked, setOnboardingChecked] = useState(false);
   const [onboardingCompleted, setOnboardingCompleted] = useState(true);
@@ -258,6 +288,26 @@ function RootNavigator() {
     }
   }, [navigationRef]);
 
+  const handleOpenGallery = useCallback(() => {
+    if (navigationRef.isReady()) {
+      navigationRef.navigate('GaleriaEtiquetas');
+    }
+  }, [navigationRef]);
+
+  const handleResetToHome = useCallback(() => {
+    if (navigationRef.isReady()) {
+      navigationRef.reset({
+        index: 0,
+        routes: [
+          {
+            name: 'HomeTabs',
+            params: { screen: 'MinhasComprasTab' },
+          },
+        ],
+      });
+    }
+  }, [navigationRef]);
+
   const handleIncomingExternalUrl = useCallback(async (url) => {
     if (!url || typeof url !== 'string') return;
     const trimmed = url.trim();
@@ -282,42 +332,28 @@ function RootNavigator() {
     lastHandledUrlRef.current = trimmed;
 
     try {
-      const content = await readExternalJsonUri(trimmed);
-      let parsed;
-      try {
-        parsed = JSON.parse(content);
-      } catch {
-        setExternalFeedbackModal({
-          type: 'error',
-          title: 'Arquivo Inválido',
-          message:
-            'O arquivo selecionado não possui um formato JSON válido do aplicativo Minha Lista de Compras.',
-        });
-        return;
-      }
-
-      const validation = validateBackupPayload(parsed);
-      if (!validation.valid) {
+      const parsedResult = await parseBackupArchiveFromUri(trimmed);
+      if (!parsedResult.valid) {
         setExternalFeedbackModal({
           type: 'error',
           title: 'Backup Incompatível',
           message:
-            validation.error ||
-            'Este arquivo JSON não é um backup válido do aplicativo Minha Lista de Compras.',
+            parsedResult.error ||
+            'Este arquivo não é um backup válido (.json ou .zip) do aplicativo Minha Lista de Compras.',
         });
         return;
       }
 
       setExternalBackupPending({
-        payload: parsed,
-        summary: validation.summary,
+        payload: parsedResult.payload,
+        summary: parsedResult.summary,
       });
     } catch {
       setExternalFeedbackModal({
         type: 'error',
         title: 'Erro ao Ler Arquivo',
         message:
-          'Não foi possível ler o arquivo JSON externo. Tente importá-lo pelo menu de Configurações do aplicativo.',
+          'Não foi possível ler o arquivo externo (.json ou .zip). Tente importá-lo pelo menu de Configurações do aplicativo.',
       });
     }
   }, []);
@@ -348,6 +384,13 @@ function RootNavigator() {
     const s = externalBackupPending.summary;
     const datePart = s.exportedAt ? ` de ${formatDateBR(s.exportedAt)}` : '';
 
+    if (s.detectedType === 'photos') {
+      return `Arquivo externo identificado: Backup de Apenas Fotos das Etiquetas${datePart} (${
+        s.photoCount
+      } ${
+        s.photoCount === 1 ? 'foto' : 'fotos'
+      }). Suas listas atuais serão mantidas intactas. Deseja restaurar agora?`;
+    }
     if (s.detectedType === 'lists') {
       return `Arquivo externo identificado: Backup de Apenas Listas de Compras${datePart} (${
         s.listCount
@@ -366,13 +409,19 @@ function RootNavigator() {
         s.reminderItemCount === 1 ? 'item' : 'itens'
       }). Suas listas de compras atuais serão mantidas. Deseja importar agora?`;
     }
+    const photosPart =
+      s.photoCount > 0
+        ? ` e ${s.photoCount} ${
+            s.photoCount === 1 ? 'foto de etiqueta' : 'fotos de etiquetas'
+          }`
+        : '';
     return `Arquivo externo identificado: Backup Completo${datePart} contendo ${
       s.listCount
     } ${
       s.listCount === 1 ? 'lista de compras' : 'listas de compras'
-    } e ${s.reminderListCount} ${
+    }, ${s.reminderListCount} ${
       s.reminderListCount === 1 ? 'lista de lembretes' : 'listas de lembretes'
-    }. Deseja importar agora?`;
+    }${photosPart}. Deseja importar agora?`;
   };
 
   const handleConfirmExternalRestore = async () => {
@@ -384,7 +433,13 @@ function RootNavigator() {
 
       let msg =
         'Backup completo importado com sucesso! Suas listas de compras e lembretes foram atualizados.';
-      if (restored.detectedType === 'lists') {
+      if (restored.detectedType === 'photos') {
+        msg = `Importação concluída: ${restored.photoCount} ${
+          restored.photoCount === 1
+            ? 'foto de etiqueta restaurada'
+            : 'fotos de etiquetas restauradas'
+        }.`;
+      } else if (restored.detectedType === 'lists') {
         msg = `Importação concluída: ${restored.listCount} ${
           restored.listCount === 1 ? 'lista de compras' : 'listas de compras'
         } restauradas (lembretes atuais preservados).`;
@@ -398,8 +453,9 @@ function RootNavigator() {
 
       setExternalFeedbackModal({
         type: 'success',
-        title: 'Backup Importado',
+        title: 'Dados importados com sucesso!',
         message: msg,
+        navigateHome: true,
       });
     } catch (err) {
       setExternalBackupPending(null);
@@ -499,11 +555,21 @@ function RootNavigator() {
               headerRight: () => null,
             }}
           />
+          <Stack.Screen
+            name="GaleriaEtiquetas"
+            component={GaleriaEtiquetasScreen}
+            options={{
+              title: 'Galeria de Etiquetas',
+              headerRight: () => null,
+            }}
+          />
         </Stack.Navigator>
       </NavigationContainer>
       <SettingsModal
         onOpenHelp={handleOpenHelp}
         onOpenAbout={handleOpenAbout}
+        onOpenGallery={handleOpenGallery}
+        onResetToHome={handleResetToHome}
       />
 
       <ConfirmModal
@@ -565,7 +631,16 @@ function RootNavigator() {
               {externalFeedbackModal?.message}
             </Text>
             <TouchableOpacity
-              onPress={() => setExternalFeedbackModal(null)}
+              onPress={() => {
+                const shouldGoHome = Boolean(
+                  externalFeedbackModal?.navigateHome
+                );
+                setExternalFeedbackModal(null);
+                if (shouldGoHome) {
+                  closeSettings();
+                  handleResetToHome();
+                }
+              }}
               style={[
                 appStyles.feedbackBtn,
                 { backgroundColor: colors.principal },

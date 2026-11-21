@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   Platform,
   LayoutAnimation,
-  UIManager,
 } from 'react-native';
 import { File, Paths } from 'expo-file-system';
 import * as LegacyFileSystem from 'expo-file-system/legacy';
@@ -29,44 +28,64 @@ import {
 } from '../../../src/theme/themes';
 import {
   exportBackupPayload,
-  validateBackupPayload,
   importBackupPayload,
   formatDateBR,
+  loadLists,
+  removeAllTagPhotos,
+  deleteAllShoppingLists,
+  deleteAllReminderLists,
+  deleteAllAppData,
 } from '../../../src/storage/shoppingStorage';
-
-if (
-  Platform.OS === 'android' &&
-  UIManager.setLayoutAnimationEnabledExperimental
-) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
+import {
+  RETENTION_DAY_OPTIONS,
+  getTagPhotosStorageStats,
+} from '../../../src/services/tagPhotoStorage';
+import {
+  buildFullZipBackup,
+  buildPhotosOnlyZipBackup,
+  parseBackupArchiveFromUri,
+} from '../../../src/services/backupArchiveService';
 
 const EXPORT_OPTIONS = [
   {
-    type: 'all',
-    title: 'Exportar Tudo',
-    desc: 'Inclui todas as listas de compras, histórico de gastos e todas as listas de lembretes.',
-    icon: 'layer-group',
+    type: 'all_zip',
+    title: 'Backup Completo (.zip)',
+    desc: 'Inclui listas, histórico, lembretes (backup.json) e todas as fotos das etiquetas compactadas.',
+    icon: 'file-zipper',
+  },
+  {
+    type: 'photos_zip',
+    title: 'Apenas Fotos das Etiquetas (.zip)',
+    desc: 'Exporta todas as fotos salvas das etiquetas com o manifesto dos produtos.',
+    icon: 'images',
   },
   {
     type: 'lists',
-    title: 'Apenas Listas de Compras',
-    desc: 'Exporta somente suas listas de compras e histórico para relatórios.',
+    title: 'Apenas Listas de Compras (.json)',
+    desc: 'Arquivo .json leve apenas com suas listas de compras e histórico para relatórios.',
     icon: 'cart-shopping',
   },
   {
     type: 'reminders',
-    title: 'Apenas Lembretes',
-    desc: 'Exporta somente suas listas de lembretes reutilizáveis.',
+    title: 'Apenas Lembretes (.json)',
+    desc: 'Arquivo .json leve apenas com suas listas de lembretes reutilizáveis.',
     icon: 'clipboard-check',
   },
 ];
 
-export default function SettingsModal({ onOpenHelp, onOpenAbout }) {
+export default function SettingsModal({
+  onOpenHelp,
+  onOpenAbout,
+  onOpenGallery,
+  onResetToHome,
+}) {
   const {
     themeId,
     theme,
     customThemeConfig,
+    saveTagPhotos,
+    autoDeleteTagPhotos,
+    tagPhotoRetentionDays,
     colors,
     radiusCard,
     radiusButton,
@@ -74,17 +93,36 @@ export default function SettingsModal({ onOpenHelp, onOpenAbout }) {
     isSettingsVisible,
     setThemeId,
     updateCustomThemeConfig,
+    updatePhotoSettings,
     notifyDataRestored,
     closeSettings,
   } = useAppSettings();
 
-  const [expandedSection, setExpandedSection] = useState(null); // null | 'themes' | 'backup' | 'support'
+  const [expandedSection, setExpandedSection] = useState(null); // null | 'themes' | 'photos' | 'backup' | 'support'
   const [showCustomEditor, setShowCustomEditor] = useState(false);
+  const [photoStats, setPhotoStats] = useState({
+    count: 0,
+    totalBytes: 0,
+    formattedSize: '0 KB',
+  });
 
   const [isBackupBusy, setIsBackupBusy] = useState(false);
   const [backupMessage, setBackupMessage] = useState(null);
   const [showExportSelector, setShowExportSelector] = useState(false);
   const [pendingRestore, setPendingRestore] = useState(null);
+  const [pendingDeleteAction, setPendingDeleteAction] = useState(null); // null | 'photos' | 'lists' | 'reminders' | 'all'
+  const [chainedDeleteAction, setChainedDeleteAction] = useState(null);
+  const [showPostBackupDeleteConfirm, setShowPostBackupDeleteConfirm] =
+    useState(false);
+  const [deleteSuccessModal, setDeleteSuccessModal] = useState(null); // null | { title, message, navigateHome }
+  const [deleteFeedback, setDeleteFeedback] = useState(null);
+
+  const refreshPhotoStats = () => {
+    loadLists()
+      .then((lists) => getTagPhotosStorageStats(lists))
+      .then((stats) => setPhotoStats(stats))
+      .catch(() => {});
+  };
 
   useEffect(() => {
     if (isSettingsVisible) {
@@ -92,8 +130,14 @@ export default function SettingsModal({ onOpenHelp, onOpenAbout }) {
       setShowCustomEditor(false);
       setBackupMessage(null);
       setPendingRestore(null);
+      setPendingDeleteAction(null);
+      setChainedDeleteAction(null);
+      setShowPostBackupDeleteConfirm(false);
+      setDeleteSuccessModal(null);
+      setDeleteFeedback(null);
       setShowExportSelector(false);
       setIsBackupBusy(false);
+      refreshPhotoStats();
     }
   }, [isSettingsVisible]);
 
@@ -128,32 +172,104 @@ export default function SettingsModal({ onOpenHelp, onOpenAbout }) {
     }
   };
 
-  const handleRunExport = async (exportType = 'all') => {
+  const handleRunExport = async (exportType = 'all_zip') => {
     setShowExportSelector(false);
     if (isBackupBusy) return;
     setIsBackupBusy(true);
     setBackupMessage(null);
+    let exportSucceeded = false;
     try {
-      const payload = await exportBackupPayload(exportType);
-      const jsonString = JSON.stringify(payload, null, 2);
       const now = new Date();
       const dd = String(now.getDate()).padStart(2, '0');
       const mm = String(now.getMonth() + 1).padStart(2, '0');
       const yyyy = now.getFullYear();
-      const suffix =
-        exportType === 'lists'
-          ? '_compras'
-          : exportType === 'reminders'
-            ? '_lembretes'
-            : '_completo';
-      const fileName = `backup_minha_lista${suffix}_${dd}-${mm}-${yyyy}.json`;
 
+      const isZipExport =
+        exportType === 'all_zip' || exportType === 'photos_zip';
+
+      if (isZipExport) {
+        const result =
+          exportType === 'photos_zip'
+            ? await buildPhotosOnlyZipBackup()
+            : await buildFullZipBackup();
+
+        if (exportType === 'photos_zip' && result.photoCount === 0) {
+          setBackupMessage({
+            type: 'error',
+            text: 'Não há fotos de etiquetas salvas para exportar.',
+          });
+          setChainedDeleteAction(null);
+          return;
+        }
+
+        const suffix =
+          exportType === 'photos_zip' ? '_fotos' : '_completo';
+        const fileName = `backup_minha_lista${suffix}_${dd}-${mm}-${yyyy}.zip`;
+        const typeLabel =
+          exportType === 'photos_zip'
+            ? 'Apenas Fotos (.zip)'
+            : 'Completo (.zip)';
+
+        if (Platform.OS === 'web') {
+          const byteChars = atob(result.base64);
+          const byteNumbers = new Array(byteChars.length);
+          for (let i = 0; i < byteChars.length; i += 1) {
+            byteNumbers[i] = byteChars.charCodeAt(i);
+          }
+          const blob = new Blob([new Uint8Array(byteNumbers)], {
+            type: 'application/zip',
+          });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = fileName;
+          link.click();
+          URL.revokeObjectURL(url);
+          setBackupMessage({
+            type: 'success',
+            text: `Backup ${typeLabel} "${fileName}" baixado com sucesso!`,
+          });
+          exportSucceeded = true;
+        } else {
+          const zipUri = `${LegacyFileSystem.cacheDirectory}${fileName}`;
+          await LegacyFileSystem.writeAsStringAsync(zipUri, result.base64, {
+            encoding: 'base64',
+          });
+
+          const canShare = await Sharing.isAvailableAsync();
+          if (!canShare) {
+            setBackupMessage({
+              type: 'error',
+              text: 'O compartilhamento nativo não está disponível neste dispositivo.',
+            });
+            setChainedDeleteAction(null);
+            return;
+          }
+
+          await Sharing.shareAsync(zipUri, {
+            mimeType: 'application/zip',
+            dialogTitle: `Exportar Backup ${typeLabel}`,
+            UTI: 'public.zip-archive',
+          });
+
+          setBackupMessage({
+            type: 'success',
+            text: `Backup ${typeLabel} gerado com sucesso!`,
+          });
+          exportSucceeded = true;
+        }
+        return;
+      }
+
+      // Lightweight JSON export for 'lists' or 'reminders'
+      const payload = await exportBackupPayload(exportType);
+      const jsonString = JSON.stringify(payload, null, 2);
+      const suffix = exportType === 'lists' ? '_compras' : '_lembretes';
+      const fileName = `backup_minha_lista${suffix}_${dd}-${mm}-${yyyy}.json`;
       const typeLabel =
         exportType === 'lists'
-          ? 'Apenas Listas de Compras'
-          : exportType === 'reminders'
-            ? 'Apenas Lembretes'
-            : 'Completo';
+          ? 'Apenas Listas de Compras (.json)'
+          : 'Apenas Lembretes (.json)';
 
       if (Platform.OS === 'web') {
         const blob = new Blob([jsonString], { type: 'application/json' });
@@ -165,8 +281,9 @@ export default function SettingsModal({ onOpenHelp, onOpenAbout }) {
         URL.revokeObjectURL(url);
         setBackupMessage({
           type: 'success',
-          text: `Backup (${typeLabel}) "${fileName}" baixado com sucesso!`,
+          text: `Backup ${typeLabel} "${fileName}" baixado com sucesso!`,
         });
+        exportSucceeded = true;
       } else {
         const file = new File(Paths.cache, fileName);
         file.create({ overwrite: true });
@@ -178,19 +295,21 @@ export default function SettingsModal({ onOpenHelp, onOpenAbout }) {
             type: 'error',
             text: 'O compartilhamento nativo não está disponível neste dispositivo.',
           });
+          setChainedDeleteAction(null);
           return;
         }
 
         await Sharing.shareAsync(file.uri, {
           mimeType: 'application/json',
-          dialogTitle: `Exportar Backup (${typeLabel})`,
+          dialogTitle: `Exportar Backup ${typeLabel}`,
           UTI: 'public.json',
         });
 
         setBackupMessage({
           type: 'success',
-          text: `Backup (${typeLabel}) gerado com sucesso!`,
+          text: `Backup ${typeLabel} gerado com sucesso!`,
         });
+        exportSucceeded = true;
       }
     } catch (error) {
       console.error('Erro ao exportar backup:', error);
@@ -198,8 +317,12 @@ export default function SettingsModal({ onOpenHelp, onOpenAbout }) {
         type: 'error',
         text: 'Não foi possível exportar o backup. Tente novamente.',
       });
+      setChainedDeleteAction(null);
     } finally {
       setIsBackupBusy(false);
+      if (exportSucceeded && chainedDeleteAction) {
+        setShowPostBackupDeleteConfirm(true);
+      }
     }
   };
 
@@ -209,7 +332,13 @@ export default function SettingsModal({ onOpenHelp, onOpenAbout }) {
     setBackupMessage(null);
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/json', 'text/plain', '*/*'],
+        type: [
+          'application/json',
+          'application/zip',
+          'application/x-zip-compressed',
+          'text/plain',
+          '*/*',
+        ],
         copyToCacheDirectory: true,
         multiple: false,
       });
@@ -219,55 +348,28 @@ export default function SettingsModal({ onOpenHelp, onOpenAbout }) {
       }
 
       const asset = result.assets[0];
-      let content = '';
-      if (Platform.OS === 'web') {
-        const resp = await fetch(asset.uri);
-        content = await resp.text();
-      } else {
-        try {
-          content = await LegacyFileSystem.readAsStringAsync(asset.uri, {
-            encoding: 'utf8',
-          });
-        } catch {
-          try {
-            const file = new File(asset.uri);
-            content = await file.text();
-          } catch {
-            const resp = await fetch(asset.uri);
-            content = await resp.text();
-          }
-        }
-      }
+      const parsedResult = await parseBackupArchiveFromUri(
+        asset.uri,
+        asset.name || ''
+      );
 
-      let parsed;
-      try {
-        parsed = JSON.parse(content);
-      } catch {
+      if (!parsedResult.valid) {
         setBackupMessage({
           type: 'error',
-          text: 'O arquivo selecionado não contém um JSON válido.',
-        });
-        return;
-      }
-
-      const validation = validateBackupPayload(parsed);
-      if (!validation.valid) {
-        setBackupMessage({
-          type: 'error',
-          text: validation.error,
+          text: parsedResult.error || 'Arquivo de backup inválido.',
         });
         return;
       }
 
       setPendingRestore({
-        payload: parsed,
-        summary: validation.summary,
+        payload: parsedResult.payload,
+        summary: parsedResult.summary,
       });
     } catch (error) {
       console.error('Erro ao importar backup:', error);
       setBackupMessage({
         type: 'error',
-        text: 'Não foi possível ler o arquivo de backup selecionado.',
+        text: 'Não foi possível ler o arquivo de backup (.json ou .zip) selecionado.',
       });
     } finally {
       setIsBackupBusy(false);
@@ -279,6 +381,13 @@ export default function SettingsModal({ onOpenHelp, onOpenAbout }) {
     const s = pendingRestore.summary;
     const datePart = s.exportedAt ? ` de ${formatDateBR(s.exportedAt)}` : '';
 
+    if (s.detectedType === 'photos') {
+      return `Detectado backup de Apenas Fotos das Etiquetas${datePart} (${
+        s.photoCount
+      } ${
+        s.photoCount === 1 ? 'foto' : 'fotos'
+      }). Suas listas atuais serão mantidas intactas. Deseja restaurar?`;
+    }
     if (s.detectedType === 'lists') {
       return `Detectado backup de Apenas Listas de Compras${datePart} (${
         s.listCount
@@ -297,11 +406,17 @@ export default function SettingsModal({ onOpenHelp, onOpenAbout }) {
         s.reminderItemCount === 1 ? 'item' : 'itens'
       }). Suas listas de compras atuais serão mantidas intactas. Deseja restaurar?`;
     }
+    const photosPart =
+      s.photoCount > 0
+        ? ` e ${s.photoCount} ${
+            s.photoCount === 1 ? 'foto de etiqueta' : 'fotos de etiquetas'
+          }`
+        : '';
     return `Detectado Backup Completo${datePart} contendo ${s.listCount} ${
       s.listCount === 1 ? 'lista de compras' : 'listas de compras'
-    } e ${s.reminderListCount} ${
+    }, ${s.reminderListCount} ${
       s.reminderListCount === 1 ? 'lista de lembretes' : 'listas de lembretes'
-    }. Deseja restaurar esses dados?`;
+    }${photosPart}. Deseja restaurar esses dados?`;
   };
 
   const handleConfirmRestore = async () => {
@@ -313,8 +428,14 @@ export default function SettingsModal({ onOpenHelp, onOpenAbout }) {
       setPendingRestore(null);
 
       let successText =
-        'Backup completo restaurado com sucesso! Listas de compras e lembretes atualizados.';
-      if (restoredSummary.detectedType === 'lists') {
+        'Backup completo restaurado com sucesso! Listas de compras, lembretes e fotos atualizados.';
+      if (restoredSummary.detectedType === 'photos') {
+        successText = `Foram restauradas ${restoredSummary.photoCount} ${
+          restoredSummary.photoCount === 1
+            ? 'foto de etiqueta'
+            : 'fotos de etiquetas'
+        }.`;
+      } else if (restoredSummary.detectedType === 'lists') {
         successText = `Foram importadas ${restoredSummary.listCount} ${
           restoredSummary.listCount === 1
             ? 'lista de compras'
@@ -332,6 +453,12 @@ export default function SettingsModal({ onOpenHelp, onOpenAbout }) {
         type: 'success',
         text: successText,
       });
+      refreshPhotoStats();
+      setDeleteSuccessModal({
+        title: 'Dados importados com sucesso!',
+        message: successText,
+        navigateHome: true,
+      });
     } catch (error) {
       console.error('Erro ao restaurar backup:', error);
       setPendingRestore(null);
@@ -348,8 +475,113 @@ export default function SettingsModal({ onOpenHelp, onOpenAbout }) {
   const isCustomActive = themeId === THEME_IDS.CUSTOM;
 
   const isThemesExpanded = expandedSection === 'themes';
+  const isPhotosExpanded = expandedSection === 'photos';
   const isBackupExpanded = expandedSection === 'backup';
+  const isDeleteExpanded = expandedSection === 'delete';
   const isSupportExpanded = expandedSection === 'support';
+
+  const photoCountLabel = `${photoStats.count} ${
+    photoStats.count === 1 ? 'foto' : 'fotos'
+  } • ${photoStats.formattedSize}`;
+
+  const getDeleteModalConfig = () => {
+    if (pendingDeleteAction === 'photos') {
+      return {
+        title: 'Excluir Todas as Fotos das Etiquetas',
+        message: `Deseja apagar permanentemente todas as fotos das etiquetas (${photoCountLabel})? Esta ação não pode ser desfeita. Recomendamos fazer um backup antes de continuar para não perder seus registros.`,
+        confirmLabel: 'Excluir Fotos',
+        showBackupBefore: true,
+      };
+    }
+    if (pendingDeleteAction === 'lists') {
+      return {
+        title: 'Excluir Todas as Listas de Compras',
+        message:
+          'Deseja apagar permanentemente todas as listas de compras (em aberto e finalizadas), o histórico de gastos e as fotos vinculadas? Esta ação não pode ser desfeita. Recomendamos fazer um backup antes de continuar para não perder seus registros.',
+        confirmLabel: 'Excluir Listas',
+        showBackupBefore: true,
+      };
+    }
+    if (pendingDeleteAction === 'reminders') {
+      return {
+        title: 'Excluir Todas as Listas de Lembretes',
+        message:
+          'Deseja apagar permanentemente todas as suas listas de lembretes reutilizáveis? Esta ação não pode ser desfeita.',
+        confirmLabel: 'Excluir Lembretes',
+        showBackupBefore: false,
+      };
+    }
+    if (pendingDeleteAction === 'all') {
+      return {
+        title: 'Excluir Todos os Dados do Aplicativo',
+        message:
+          'Deseja zerar o aplicativo apagando todas as listas de compras, histórico de gastos, lembretes, categorias aprendidas e fotos das etiquetas? Esta ação não pode ser desfeita. Recomendamos fazer um backup antes de continuar para não perder seus registros.',
+        confirmLabel: 'Excluir Tudo',
+        showBackupBefore: true,
+      };
+    }
+    return null;
+  };
+
+  const executeGranularDelete = async (action) => {
+    if (!action) return;
+    setPendingDeleteAction(null);
+    setChainedDeleteAction(null);
+    setShowPostBackupDeleteConfirm(false);
+    try {
+      let msg = 'Dados excluídos com sucesso!';
+      let navigateHome = false;
+
+      if (action === 'photos') {
+        await removeAllTagPhotos();
+        setPhotoStats({ count: 0, totalBytes: 0, formattedSize: '0 KB' });
+        msg = 'Todas as fotos das etiquetas foram excluídas com sucesso!';
+      } else if (action === 'lists') {
+        await deleteAllShoppingLists();
+        setPhotoStats({ count: 0, totalBytes: 0, formattedSize: '0 KB' });
+        msg =
+          'Todas as listas de compras, histórico e fotos vinculadas foram excluídos com sucesso!';
+      } else if (action === 'reminders') {
+        await deleteAllReminderLists();
+        msg = 'Todas as listas de lembretes foram excluídas com sucesso!';
+      } else if (action === 'all') {
+        await deleteAllAppData();
+        setPhotoStats({ count: 0, totalBytes: 0, formattedSize: '0 KB' });
+        msg =
+          'Todos os dados do aplicativo foram apagados com sucesso! Você voltará para a tela inicial.';
+        navigateHome = true;
+      }
+
+      setDeleteFeedback(msg);
+      notifyDataRestored();
+      refreshPhotoStats();
+      setDeleteSuccessModal({
+        title: 'Dados excluídos com sucesso!',
+        message: msg,
+        navigateHome,
+      });
+    } catch (err) {
+      console.error('Erro ao excluir dados:', err);
+      setDeleteFeedback('Não foi possível concluir a exclusão dos dados.');
+    }
+  };
+
+  const handleConfirmGranularDelete = () =>
+    executeGranularDelete(pendingDeleteAction);
+
+  const handleConfirmPostBackupDelete = () =>
+    executeGranularDelete(chainedDeleteAction);
+
+  const handleDismissDeleteSuccess = () => {
+    const shouldGoHome = Boolean(deleteSuccessModal?.navigateHome);
+    setDeleteSuccessModal(null);
+    if (shouldGoHome) {
+      closeSettings();
+      onResetToHome?.();
+    }
+  };
+
+  const deleteModalCfg = getDeleteModalConfig();
 
   return (
     <Modal
@@ -864,7 +1096,332 @@ export default function SettingsModal({ onOpenHelp, onOpenAbout }) {
               ) : null}
             </View>
 
-            {/* 2. ACCORDION: BACKUP DE DADOS */}
+            {/* 2. ACCORDION: FOTOS DAS ETIQUETAS */}
+            <View
+              style={[
+                styles.accordionCard,
+                {
+                  backgroundColor: colors.surfaceMuted,
+                  borderColor: isPhotosExpanded
+                    ? colors.principal
+                    : colors.borderColor,
+                  borderRadius: radiusCard,
+                  borderWidth,
+                },
+              ]}
+            >
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => toggleSection('photos')}
+                style={styles.accordionHeader}
+                accessibilityLabel="Expandir ou recolher Fotos das Etiquetas"
+              >
+                <View
+                  style={[
+                    styles.accordionIconWrap,
+                    {
+                      backgroundColor: colors.verdeSuave,
+                      borderRadius: Math.min(12, radiusButton),
+                    },
+                  ]}
+                >
+                  <FontAwesome6
+                    name="images"
+                    size={15}
+                    color={colors.badgeText || colors.principal}
+                  />
+                </View>
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text
+                    style={[
+                      styles.accordionTitle,
+                      { color: colors.textoEscuro },
+                    ]}
+                  >
+                    Fotos das Etiquetas
+                  </Text>
+                  <Text
+                    style={[
+                      styles.accordionSubtitle,
+                      { color: colors.textMuted },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {saveTagPhotos ? 'Salvamento ativo' : 'Desativado'} •{' '}
+                    {photoCountLabel}
+                  </Text>
+                </View>
+                <FontAwesome6
+                  name={isPhotosExpanded ? 'chevron-up' : 'chevron-down'}
+                  size={14}
+                  color={colors.textMuted}
+                />
+              </TouchableOpacity>
+
+              {isPhotosExpanded ? (
+                <View
+                  style={[
+                    styles.accordionBody,
+                    { borderTopColor: colors.borderColor },
+                  ]}
+                >
+                  {/* Toggle: Salvar fotos das etiquetas */}
+                  <Text
+                    style={[styles.builderLabel, { color: colors.textoEscuro }]}
+                  >
+                    Salvar fotos das etiquetas
+                  </Text>
+                  <View style={styles.pillRow}>
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() =>
+                        updatePhotoSettings({ saveTagPhotos: true })
+                      }
+                      style={[
+                        styles.builderPill,
+                        {
+                          backgroundColor: saveTagPhotos
+                            ? colors.principal
+                            : colors.card,
+                          borderColor: saveTagPhotos
+                            ? colors.principal
+                            : colors.borderColor,
+                          borderRadius: Math.min(10, radiusButton),
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.builderPillText,
+                          {
+                            color: saveTagPhotos
+                              ? colors.textoPrincipal
+                              : colors.textoEscuro,
+                          },
+                        ]}
+                      >
+                        Sim
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() =>
+                        updatePhotoSettings({ saveTagPhotos: false })
+                      }
+                      style={[
+                        styles.builderPill,
+                        {
+                          backgroundColor: !saveTagPhotos
+                            ? colors.principal
+                            : colors.card,
+                          borderColor: !saveTagPhotos
+                            ? colors.principal
+                            : colors.borderColor,
+                          borderRadius: Math.min(10, radiusButton),
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.builderPillText,
+                          {
+                            color: !saveTagPhotos
+                              ? colors.textoPrincipal
+                              : colors.textoEscuro,
+                          },
+                        ]}
+                      >
+                        Não
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {saveTagPhotos ? (
+                    <>
+                      <Text
+                        style={[
+                          styles.builderLabel,
+                          { color: colors.textoEscuro, marginTop: 12 },
+                        ]}
+                      >
+                        Exclusão automática por tempo
+                      </Text>
+                      <View style={styles.pillRow}>
+                        <TouchableOpacity
+                          activeOpacity={0.8}
+                          onPress={() =>
+                            updatePhotoSettings({ autoDeleteTagPhotos: true })
+                          }
+                          style={[
+                            styles.builderPill,
+                            {
+                              backgroundColor: autoDeleteTagPhotos
+                                ? colors.principal
+                                : colors.card,
+                              borderColor: autoDeleteTagPhotos
+                                ? colors.principal
+                                : colors.borderColor,
+                              borderRadius: Math.min(10, radiusButton),
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.builderPillText,
+                              {
+                                color: autoDeleteTagPhotos
+                                  ? colors.textoPrincipal
+                                  : colors.textoEscuro,
+                              },
+                            ]}
+                          >
+                            Sim
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          activeOpacity={0.8}
+                          onPress={() =>
+                            updatePhotoSettings({ autoDeleteTagPhotos: false })
+                          }
+                          style={[
+                            styles.builderPill,
+                            {
+                              backgroundColor: !autoDeleteTagPhotos
+                                ? colors.principal
+                                : colors.card,
+                              borderColor: !autoDeleteTagPhotos
+                                ? colors.principal
+                                : colors.borderColor,
+                              borderRadius: Math.min(10, radiusButton),
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.builderPillText,
+                              {
+                                color: !autoDeleteTagPhotos
+                                  ? colors.textoPrincipal
+                                  : colors.textoEscuro,
+                              },
+                            ]}
+                          >
+                            Não
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      {autoDeleteTagPhotos ? (
+                        <View style={[styles.pillRow, { marginTop: 8 }]}>
+                          {RETENTION_DAY_OPTIONS.map((days) => {
+                            const selected = tagPhotoRetentionDays === days;
+                            return (
+                              <TouchableOpacity
+                                key={days}
+                                activeOpacity={0.8}
+                                onPress={() =>
+                                  updatePhotoSettings({
+                                    tagPhotoRetentionDays: days,
+                                  })
+                                }
+                                style={[
+                                  styles.builderPill,
+                                  {
+                                    minWidth: '21%',
+                                    backgroundColor: selected
+                                      ? colors.principal
+                                      : colors.card,
+                                    borderColor: selected
+                                      ? colors.principal
+                                      : colors.borderColor,
+                                    borderRadius: Math.min(10, radiusButton),
+                                  },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.builderPillText,
+                                    {
+                                      color: selected
+                                        ? colors.textoPrincipal
+                                        : colors.textoEscuro,
+                                    },
+                                  ]}
+                                >
+                                  {days} dias
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      ) : null}
+                    </>
+                  ) : null}
+
+                  {/* Galeria de Etiquetas Button */}
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      closeSettings();
+                      onOpenGallery?.();
+                    }}
+                    style={[
+                      styles.navItemBtn,
+                      {
+                        backgroundColor: colors.card,
+                        borderColor: colors.principal,
+                        borderWidth: 1.5,
+                        borderRadius: radiusButton,
+                        marginTop: 14,
+                      },
+                    ]}
+                    accessibilityLabel="Abrir Galeria de Etiquetas"
+                  >
+                    <View
+                      style={[
+                        styles.navItemIconWrap,
+                        {
+                          backgroundColor: colors.verdeSuave,
+                          borderRadius: Math.min(11, radiusButton),
+                        },
+                      ]}
+                    >
+                      <FontAwesome6
+                        name="photo-film"
+                        size={16}
+                        color={colors.badgeText || colors.principal}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={[
+                          styles.navItemTitle,
+                          { color: colors.textoEscuro },
+                        ]}
+                      >
+                        Galeria de Etiquetas
+                      </Text>
+                      <Text
+                        style={[
+                          styles.navItemDesc,
+                          { color: colors.textMuted },
+                        ]}
+                      >
+                        {photoCountLabel}
+                      </Text>
+                    </View>
+                    <FontAwesome6
+                      name="chevron-right"
+                      size={13}
+                      color={colors.principal}
+                      style={{ marginLeft: 8 }}
+                    />
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+            </View>
+
+            {/* 3. ACCORDION: BACKUP DE DADOS */}
             <View
               style={[
                 styles.accordionCard,
@@ -915,7 +1472,7 @@ export default function SettingsModal({ onOpenHelp, onOpenAbout }) {
                     ]}
                     numberOfLines={1}
                   >
-                    Exportar e restaurar arquivos .json
+                    Exportar e restaurar arquivos .zip e .json
                   </Text>
                 </View>
                 <FontAwesome6
@@ -1042,7 +1599,294 @@ export default function SettingsModal({ onOpenHelp, onOpenAbout }) {
               ) : null}
             </View>
 
-            {/* 3. ACCORDION: SUPORTE E INFORMAÇÕES */}
+            {/* 4. ACCORDION: EXCLUIR DADOS */}
+            <View
+              style={[
+                styles.accordionCard,
+                {
+                  backgroundColor: colors.surfaceMuted,
+                  borderColor: isDeleteExpanded
+                    ? colors.logoutRed
+                    : colors.borderColor,
+                  borderRadius: radiusCard,
+                  borderWidth,
+                },
+              ]}
+            >
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => toggleSection('delete')}
+                style={styles.accordionHeader}
+                accessibilityLabel="Expandir ou recolher Excluir Dados"
+              >
+                <View
+                  style={[
+                    styles.accordionIconWrap,
+                    {
+                      backgroundColor: colors.dangerSoft,
+                      borderRadius: Math.min(12, radiusButton),
+                    },
+                  ]}
+                >
+                  <FontAwesome6
+                    name="trash-can"
+                    size={15}
+                    color={colors.logoutRed}
+                  />
+                </View>
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text
+                    style={[
+                      styles.accordionTitle,
+                      { color: colors.textoEscuro },
+                    ]}
+                  >
+                    Excluir Dados
+                  </Text>
+                  <Text
+                    style={[
+                      styles.accordionSubtitle,
+                      { color: colors.textMuted },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    Limpeza seletiva ou redefinição completa
+                  </Text>
+                </View>
+                <FontAwesome6
+                  name={isDeleteExpanded ? 'chevron-up' : 'chevron-down'}
+                  size={14}
+                  color={colors.textMuted}
+                />
+              </TouchableOpacity>
+
+              {isDeleteExpanded ? (
+                <View
+                  style={[
+                    styles.accordionBody,
+                    { borderTopColor: colors.borderColor },
+                  ]}
+                >
+                  {deleteFeedback ? (
+                    <View
+                      style={[
+                        styles.backupBanner,
+                        {
+                          backgroundColor: colors.verdeSuave,
+                          borderRadius: Math.min(10, radiusButton),
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.backupBannerText,
+                          { color: colors.badgeText || colors.principal },
+                        ]}
+                      >
+                        {deleteFeedback}
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => setPendingDeleteAction('photos')}
+                    style={[
+                      styles.navItemBtn,
+                      {
+                        backgroundColor: colors.card,
+                        borderColor: colors.borderColor,
+                        borderWidth,
+                        borderRadius: radiusButton,
+                        marginBottom: 8,
+                      },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.navItemIconWrap,
+                        {
+                          backgroundColor: colors.dangerSoft,
+                          borderRadius: Math.min(11, radiusButton),
+                        },
+                      ]}
+                    >
+                      <FontAwesome6
+                        name="images"
+                        size={15}
+                        color={colors.logoutRed}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={[
+                          styles.navItemTitle,
+                          { color: colors.textoEscuro },
+                        ]}
+                      >
+                        Excluir Todas as Fotos das Etiquetas
+                      </Text>
+                      <Text
+                        style={[
+                          styles.navItemDesc,
+                          { color: colors.textMuted },
+                        ]}
+                      >
+                        {photoCountLabel}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => setPendingDeleteAction('lists')}
+                    style={[
+                      styles.navItemBtn,
+                      {
+                        backgroundColor: colors.card,
+                        borderColor: colors.borderColor,
+                        borderWidth,
+                        borderRadius: radiusButton,
+                        marginBottom: 8,
+                      },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.navItemIconWrap,
+                        {
+                          backgroundColor: colors.dangerSoft,
+                          borderRadius: Math.min(11, radiusButton),
+                        },
+                      ]}
+                    >
+                      <FontAwesome6
+                        name="cart-shopping"
+                        size={15}
+                        color={colors.logoutRed}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={[
+                          styles.navItemTitle,
+                          { color: colors.textoEscuro },
+                        ]}
+                      >
+                        Excluir Todas as Listas de Compras
+                      </Text>
+                      <Text
+                        style={[
+                          styles.navItemDesc,
+                          { color: colors.textMuted },
+                        ]}
+                      >
+                        Apaga compras em aberto, finalizadas, histórico e fotos.
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => setPendingDeleteAction('reminders')}
+                    style={[
+                      styles.navItemBtn,
+                      {
+                        backgroundColor: colors.card,
+                        borderColor: colors.borderColor,
+                        borderWidth,
+                        borderRadius: radiusButton,
+                        marginBottom: 8,
+                      },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.navItemIconWrap,
+                        {
+                          backgroundColor: colors.dangerSoft,
+                          borderRadius: Math.min(11, radiusButton),
+                        },
+                      ]}
+                    >
+                      <FontAwesome6
+                        name="clipboard-check"
+                        size={15}
+                        color={colors.logoutRed}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={[
+                          styles.navItemTitle,
+                          { color: colors.textoEscuro },
+                        ]}
+                      >
+                        Excluir Todas as Listas de Lembretes
+                      </Text>
+                      <Text
+                        style={[
+                          styles.navItemDesc,
+                          { color: colors.textMuted },
+                        ]}
+                      >
+                        Remove todas as listas de lembretes reutilizáveis.
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => setPendingDeleteAction('all')}
+                    style={[
+                      styles.navItemBtn,
+                      {
+                        backgroundColor: colors.dangerSoft,
+                        borderColor: colors.logoutRed,
+                        borderWidth: 1.5,
+                        borderRadius: radiusButton,
+                      },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.navItemIconWrap,
+                        {
+                          backgroundColor: colors.logoutRed,
+                          borderRadius: Math.min(11, radiusButton),
+                        },
+                      ]}
+                    >
+                      <FontAwesome6
+                        name="triangle-exclamation"
+                        size={15}
+                        color="#FFFFFF"
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={[
+                          styles.navItemTitle,
+                          { color: colors.logoutRed },
+                        ]}
+                      >
+                        Excluir Todos os Dados do Aplicativo
+                      </Text>
+                      <Text
+                        style={[
+                          styles.navItemDesc,
+                          { color: colors.dangerText || colors.logoutRed },
+                        ]}
+                      >
+                        Limpa listas, histórico, lembretes, categorias aprendidas e fotos.
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+            </View>
+
+            {/* 5. ACCORDION: SUPORTE E INFORMAÇÕES */}
             <View
               style={[
                 styles.accordionCard,
@@ -1259,7 +2103,10 @@ export default function SettingsModal({ onOpenHelp, onOpenAbout }) {
         animationType="fade"
         transparent={true}
         visible={showExportSelector}
-        onRequestClose={() => setShowExportSelector(false)}
+        onRequestClose={() => {
+          setShowExportSelector(false);
+          setChainedDeleteAction(null);
+        }}
       >
         <View style={styles.overlay}>
           <View
@@ -1290,7 +2137,10 @@ export default function SettingsModal({ onOpenHelp, onOpenAbout }) {
                 </Text>
               </View>
               <TouchableOpacity
-                onPress={() => setShowExportSelector(false)}
+                onPress={() => {
+                  setShowExportSelector(false);
+                  setChainedDeleteAction(null);
+                }}
                 style={[
                   styles.closeIconBtn,
                   {
@@ -1313,7 +2163,7 @@ export default function SettingsModal({ onOpenHelp, onOpenAbout }) {
                 { color: colors.textMuted, marginBottom: 14 },
               ]}
             >
-              Selecione o escopo do arquivo JSON de backup:
+              Selecione o escopo do arquivo de backup (.zip ou .json):
             </Text>
 
             {EXPORT_OPTIONS.map((opt) => (
@@ -1374,7 +2224,10 @@ export default function SettingsModal({ onOpenHelp, onOpenAbout }) {
             ))}
 
             <TouchableOpacity
-              onPress={() => setShowExportSelector(false)}
+              onPress={() => {
+                setShowExportSelector(false);
+                setChainedDeleteAction(null);
+              }}
               style={[
                 styles.exportCancelBtn,
                 {
@@ -1406,6 +2259,128 @@ export default function SettingsModal({ onOpenHelp, onOpenAbout }) {
         onCancel={() => setPendingRestore(null)}
         onConfirm={handleConfirmRestore}
       />
+
+      <ConfirmModal
+        visible={Boolean(deleteModalCfg)}
+        title={deleteModalCfg?.title || 'Confirmar Exclusão'}
+        message={deleteModalCfg?.message || ''}
+        confirmLabel={deleteModalCfg?.confirmLabel || 'Excluir'}
+        secondaryLabel={
+          deleteModalCfg?.showBackupBefore ? 'Fazer Backup Antes' : null
+        }
+        onSecondaryPress={
+          deleteModalCfg?.showBackupBefore
+            ? () => {
+                const actionToChain = pendingDeleteAction;
+                setPendingDeleteAction(null);
+                setChainedDeleteAction(actionToChain);
+                setShowExportSelector(true);
+              }
+            : null
+        }
+        onCancel={() => setPendingDeleteAction(null)}
+        onConfirm={handleConfirmGranularDelete}
+      />
+
+      <ConfirmModal
+        visible={showPostBackupDeleteConfirm}
+        title="Backup feito com sucesso!"
+        message="Deseja seguir agora com a exclusão dos dados selecionados?"
+        confirmLabel="Continuar com a Exclusão"
+        onCancel={() => {
+          setShowPostBackupDeleteConfirm(false);
+          setChainedDeleteAction(null);
+        }}
+        onConfirm={handleConfirmPostBackupDelete}
+      />
+
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={Boolean(deleteSuccessModal)}
+        onRequestClose={handleDismissDeleteSuccess}
+      >
+        <View style={styles.overlay}>
+          <View
+            style={[
+              styles.exportSelectorCard,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.borderColor,
+                borderRadius: Math.min(22, radiusCard + 4),
+                borderWidth,
+                alignItems: 'center',
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.accordionIconWrap,
+                {
+                  width: 54,
+                  height: 54,
+                  borderRadius: Math.min(18, radiusCard),
+                  backgroundColor: colors.verdeSuave,
+                  marginRight: 0,
+                  marginBottom: 12,
+                },
+              ]}
+            >
+              <FontAwesome6
+                name="circle-check"
+                size={24}
+                color={colors.badgeText || colors.principal}
+              />
+            </View>
+            <Text
+              style={[
+                styles.exportSelectorTitle,
+                {
+                  color: colors.textoEscuro,
+                  marginLeft: 0,
+                  textAlign: 'center',
+                  marginBottom: 8,
+                },
+              ]}
+            >
+              {deleteSuccessModal?.title || 'Dados excluídos com sucesso!'}
+            </Text>
+            <Text
+              style={[
+                styles.sectionDesc,
+                {
+                  color: colors.textMuted,
+                  textAlign: 'center',
+                  marginBottom: 18,
+                },
+              ]}
+            >
+              {deleteSuccessModal?.message}
+            </Text>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={handleDismissDeleteSuccess}
+              style={[
+                styles.doneButton,
+                {
+                  backgroundColor: colors.principal,
+                  borderRadius: radiusButton,
+                  marginTop: 0,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.doneButtonText,
+                  { color: colors.textoPrincipal },
+                ]}
+              >
+                OK
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </Modal>
   );
 }

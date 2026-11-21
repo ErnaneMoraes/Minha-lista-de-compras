@@ -89,12 +89,35 @@ const HELP_SECTIONS = [
         text: 'Alterne entre o gráfico de Barras (evolução dos gastos) e o gráfico de Pizza (distribuição detalhada por categoria).',
       },
       {
-        label: 'Exportar Backup:',
-        text: 'Abra Configurações (ícone de engrenagem no topo) > "Exportar Dados (Backup)". Escolha exportar Tudo, Apenas Listas de Compras ou Apenas Lembretes em um arquivo .json.',
+        label: 'Exportar Backup (.zip e .json):',
+        text: 'Abra Configurações > Backup de Dados > "Exportar Dados (Backup)". Você pode gerar um Backup Completo (.zip com listas, lembretes e fotos), Apenas Fotos das Etiquetas (.zip) ou arquivos leves .json de Listas de Compras ou Lembretes.',
       },
       {
         label: 'Importar e Compartilhar:',
-        text: 'Para restaurar, use "Importar Dados (Restaurar)" nas Configurações ou abra diretamente um arquivo .json recebido no celular usando "Abrir com... Minha Lista de Compras".',
+        text: 'Para restaurar, use "Importar Backup (Restaurar)" nas Configurações ou abra diretamente um arquivo .zip ou .json recebido no celular usando "Abrir com... Minha Lista de Compras".',
+      },
+    ],
+  },
+  {
+    id: 'photos',
+    icon: 'images',
+    title: '5. Fotos das Etiquetas e Galeria',
+    steps: [
+      {
+        label: 'Salvamento compactado no aparelho:',
+        text: 'Quando ativado, cada etiqueta fotografada é salva localmente em formato JPEG leve (~30 KB) para que você possa conferir o preço da prateleira a qualquer momento.',
+      },
+      {
+        label: 'Ver foto direto no item:',
+        text: 'Itens com foto exibem um ícone discreto de imagem ao lado do preço. Toque no ícone (ou no botão "Ver foto da etiqueta" ao editar o produto) para ampliar a foto.',
+      },
+      {
+        label: 'Exclusão automática por tempo:',
+        text: 'Em Configurações > Fotos das Etiquetas, você pode ativar a limpeza automática após 30, 60, 90 ou 120 dias para manter o aparelho sempre leve.',
+      },
+      {
+        label: 'Galeria de Etiquetas, Backup .zip e Exclusão de Dados:',
+        text: 'Na Galeria de Etiquetas você busca por produto, filtra por data/mês e gerencia suas fotos. No Backup Completo (.zip) ou de Apenas Fotos (.zip), todas as imagens vão compactadas e são restauradas automaticamente. Em Configurações > Excluir Dados, você também pode limpar apenas fotos, listas, lembretes ou zerar o app com confirmação segura e atalho para fazer backup antes.',
       },
     ],
   },

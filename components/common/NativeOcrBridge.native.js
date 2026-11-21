@@ -233,16 +233,36 @@ const OCR_HTML = `<!DOCTYPE html>
               var data = res && res.data ? res.data : {};
               var lines = [], words = [];
               var blocks = data.blocks || [];
+              function toFrame(b) {
+                if (!b) return null;
+                var left = Number(b.x0) || 0;
+                var top = Number(b.y0) || 0;
+                var width = Math.max(0, (Number(b.x1) || 0) - left);
+                var height = Math.max(0, (Number(b.y1) || 0) - top);
+                return { top: top, left: left, width: width, height: height };
+              }
               for (var bi = 0; bi < blocks.length; bi++) {
                 var paras = blocks[bi].paragraphs || [];
                 for (var pi = 0; pi < paras.length; pi++) {
                   var ls = paras[pi].lines || [];
                   for (var li = 0; li < ls.length; li++) {
-                    lines.push({ text: ls[li].text || '', bbox: ls[li].bbox || null });
                     var ws = ls[li].words || [];
+                    var lineWords = [];
                     for (var wi = 0; wi < ws.length; wi++) {
-                      words.push({ text: ws[wi].text || '', bbox: ws[wi].bbox || null });
+                      var wObj = {
+                        text: ws[wi].text || '',
+                        bbox: ws[wi].bbox || null,
+                        frame: toFrame(ws[wi].bbox)
+                      };
+                      lineWords.push(wObj);
+                      words.push(wObj);
                     }
+                    lines.push({
+                      text: ls[li].text || '',
+                      bbox: ls[li].bbox || null,
+                      frame: toFrame(ls[li].bbox),
+                      words: lineWords
+                    });
                   }
                 }
               }
@@ -266,6 +286,7 @@ const OCR_HTML = `<!DOCTYPE html>
                   text: data.text || '',
                   lines: lines,
                   words: words,
+                  elements: words,
                   imageWidth: prep.fullCanvas.width,
                   imageHeight: prep.fullCanvas.height,
                   titleText: titleText,

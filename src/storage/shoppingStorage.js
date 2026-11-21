@@ -6,6 +6,17 @@ import {
   DEFAULT_CUSTOM_THEME_CONFIG,
 } from '../theme/themes';
 import {
+  RETENTION_DAY_OPTIONS,
+  DEFAULT_RETENTION_DAYS,
+  deleteTagPhotoFile,
+  deleteMultipleTagPhotoFiles,
+  deleteAllTagPhotos,
+  findAndDeleteExpiredTagPhotos,
+  exportTagPhotosAsBase64Map,
+  restoreTagPhotosFromBase64Map,
+} from '../services/tagPhotoStorage';
+import {
+  LEARNED_CATEGORIES_KEY,
   STANDARD_CATEGORIES,
   normalizeCategoryName,
   getCategoryMeta,
@@ -72,6 +83,9 @@ export const DEFAULT_SETTINGS = {
   darkMode: false,
   cameraCaptureMode: 'partial', // fixed default: partial capture
   cameraSource: 'native',
+  saveTagPhotos: true,
+  autoDeleteTagPhotos: false,
+  tagPhotoRetentionDays: DEFAULT_RETENTION_DAYS,
 };
 
 export const CATEGORIES = STANDARD_CATEGORIES;
@@ -260,12 +274,22 @@ export async function loadSettings() {
         ? THEME_IDS.DARK
         : THEME_IDS.LIGHT;
     const theme = getThemeById(resolvedThemeId);
+    const rawDays = Number(parsed?.tagPhotoRetentionDays);
+    const validDays = RETENTION_DAY_OPTIONS.includes(rawDays)
+      ? rawDays
+      : DEFAULT_RETENTION_DAYS;
     return {
       themeId: resolvedThemeId,
       darkMode: theme.isDark,
       cameraCaptureMode: 'partial',
       cameraSource:
         parsed?.cameraSource === 'inapp' ? 'inapp' : 'native',
+      saveTagPhotos:
+        parsed?.saveTagPhotos !== undefined
+          ? Boolean(parsed.saveTagPhotos)
+          : DEFAULT_SETTINGS.saveTagPhotos,
+      autoDeleteTagPhotos: Boolean(parsed?.autoDeleteTagPhotos),
+      tagPhotoRetentionDays: validDays,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -466,8 +490,17 @@ export async function reopenList(listId) {
 
 export async function deleteList(listId) {
   const lists = await loadLists();
+  const target = lists.find((list) => list.id === listId);
+  const photosToDelete = (Array.isArray(target?.items) ? target.items : [])
+    .map((it) => it?.photoFilename)
+    .filter(Boolean);
+
   const updated = lists.filter((list) => list.id !== listId);
   await saveLists(updated);
+
+  if (photosToDelete.length > 0) {
+    await deleteMultipleTagPhotoFiles(photosToDelete);
+  }
 
   const history = await loadHistory();
   const filteredHistory = history.filter((h) => h.listId !== listId);
@@ -484,8 +517,21 @@ export async function deleteList(listId) {
 export async function deleteMultipleLists(listIds) {
   const idSet = new Set(Array.isArray(listIds) ? listIds : []);
   const lists = await loadLists();
+  const photosToDelete = [];
+  for (const list of lists) {
+    if (idSet.has(list.id) && Array.isArray(list.items)) {
+      for (const it of list.items) {
+        if (it?.photoFilename) photosToDelete.push(it.photoFilename);
+      }
+    }
+  }
+
   const updated = lists.filter((list) => !idSet.has(list.id));
   await saveLists(updated);
+
+  if (photosToDelete.length > 0) {
+    await deleteMultipleTagPhotoFiles(photosToDelete);
+  }
 
   const history = await loadHistory();
   const filteredHistory = history.filter((h) => !idSet.has(h.listId));
@@ -517,6 +563,12 @@ export async function addItemToList(listId, itemData) {
     price: parseDecimal(itemData?.price),
     description: desc,
     checked: Boolean(itemData?.checked),
+    ...(itemData?.photoFilename
+      ? {
+          photoFilename: itemData.photoFilename,
+          photoCapturedAt: itemData.photoCapturedAt || new Date().toISOString(),
+        }
+      : {}),
   };
 
   const sourceRemId = itemData?.sourceReminderId || null;
@@ -565,6 +617,15 @@ export async function updateItemInList(listId, itemId, updates) {
         learnedName = nextName;
         learnedCat = nextCat;
 
+        const nextPhotoFilename =
+          updates.photoFilename !== undefined
+            ? updates.photoFilename
+            : item.photoFilename;
+        const nextPhotoCapturedAt =
+          updates.photoCapturedAt !== undefined
+            ? updates.photoCapturedAt
+            : item.photoCapturedAt;
+
         return {
           id: item.id,
           name: nextName,
@@ -577,6 +638,12 @@ export async function updateItemInList(listId, itemId, updates) {
           price: updates.price !== undefined ? parseDecimal(updates.price) : item.price,
           description: nextDesc,
           checked: updates.checked !== undefined ? Boolean(updates.checked) : item.checked,
+          ...(nextPhotoFilename
+            ? {
+                photoFilename: nextPhotoFilename,
+                photoCapturedAt: nextPhotoCapturedAt || null,
+              }
+            : {}),
         };
       }),
     };
@@ -612,15 +679,109 @@ export async function updateItemQuantity(listId, itemId, delta) {
 
 export async function deleteItemFromList(listId, itemId) {
   const lists = await loadLists();
+  let photoToDelete = null;
   const updated = lists.map((list) => {
     if (list.id !== listId) return list;
+    const targetItem = (list.items || []).find((item) => item.id === itemId);
+    if (targetItem?.photoFilename) {
+      photoToDelete = targetItem.photoFilename;
+    }
     return {
       ...list,
-      items: list.items.filter((item) => item.id !== itemId),
+      items: (list.items || []).filter((item) => item.id !== itemId),
     };
   });
   await saveLists(updated);
+  if (photoToDelete) {
+    await deleteTagPhotoFile(photoToDelete);
+  }
   return updated.find((list) => list.id === listId) || null;
+}
+
+export async function removeTagPhotosFromItems(photoFilenames) {
+  const targetSet = new Set(
+    Array.isArray(photoFilenames) ? photoFilenames.filter(Boolean) : []
+  );
+  if (targetSet.size === 0) return { removedCount: 0 };
+
+  const lists = await loadLists();
+  let removedCount = 0;
+  const updated = lists.map((list) => {
+    const items = Array.isArray(list.items) ? list.items : [];
+    let changed = false;
+    const nextItems = items.map((item) => {
+      if (item?.photoFilename && targetSet.has(item.photoFilename)) {
+        changed = true;
+        removedCount += 1;
+        const { photoFilename, photoCapturedAt, ...rest } = item;
+        return rest;
+      }
+      return item;
+    });
+    return changed ? { ...list, items: nextItems } : list;
+  });
+
+  await saveLists(updated);
+  await deleteMultipleTagPhotoFiles(Array.from(targetSet));
+  return { removedCount };
+}
+
+export async function removeAllTagPhotos() {
+  const lists = await loadLists();
+  let removedCount = 0;
+  const updated = lists.map((list) => {
+    const items = Array.isArray(list.items) ? list.items : [];
+    let changed = false;
+    const nextItems = items.map((item) => {
+      if (item?.photoFilename) {
+        removedCount += 1;
+        changed = true;
+        const { photoFilename, photoCapturedAt, ...rest } = item;
+        return rest;
+      }
+      return item;
+    });
+    return changed ? { ...list, items: nextItems } : list;
+  });
+
+  await Promise.all([saveLists(updated), deleteAllTagPhotos()]);
+  return { removedCount };
+}
+
+export async function runTagPhotoRetentionCleanup(retentionDays) {
+  const lists = await loadLists();
+  const result = await findAndDeleteExpiredTagPhotos(lists, retentionDays);
+  if (result.changed) {
+    await saveLists(result.updatedLists);
+  }
+  return result.removedCount;
+}
+
+export async function deleteAllShoppingLists() {
+  const lists = await loadLists();
+  await Promise.all([
+    AsyncStorage.setItem(STORAGE_KEYS.LISTS, JSON.stringify([])),
+    AsyncStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify([])),
+    deleteAllTagPhotos(),
+  ]);
+  return { deletedLists: lists.length };
+}
+
+export async function deleteAllReminderLists() {
+  const reminders = await loadReminderLists();
+  await AsyncStorage.setItem(STORAGE_KEYS.REMINDERS, JSON.stringify([]));
+  return { deletedReminders: reminders.length };
+}
+
+export async function deleteAllAppData() {
+  await Promise.all([
+    AsyncStorage.setItem(STORAGE_KEYS.LISTS, JSON.stringify([])),
+    AsyncStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify([])),
+    AsyncStorage.setItem(STORAGE_KEYS.REMINDERS, JSON.stringify([])),
+    AsyncStorage.removeItem(LEARNED_CATEGORIES_KEY),
+    deleteAllTagPhotos(),
+  ]);
+  return { cleared: true };
 }
 
 export async function loadHistory() {
@@ -940,6 +1101,25 @@ export async function exportBackupPayload(exportType = 'all') {
     const [lists, history] = await Promise.all([loadLists(), loadHistory()]);
     data.lists = lists;
     data.history = history;
+
+    // Embed compressed tag photos only in full backup ('all')
+    if (safeType === 'all') {
+      const photoFilenames = [];
+      for (const list of lists) {
+        const items = Array.isArray(list?.items) ? list.items : [];
+        for (const item of items) {
+          if (item?.photoFilename) {
+            photoFilenames.push(item.photoFilename);
+          }
+        }
+      }
+      if (photoFilenames.length > 0) {
+        const photosMap = await exportTagPhotosAsBase64Map(photoFilenames);
+        if (Object.keys(photosMap).length > 0) {
+          data.photos = photosMap;
+        }
+      }
+    }
   }
 
   if (safeType === 'all' || safeType === 'reminders') {
@@ -976,6 +1156,11 @@ export function validateBackupPayload(raw) {
   const declaredType = raw.exportType;
   const hasListsKey = Array.isArray(raw.data.lists);
   const hasRemindersKey = Array.isArray(raw.data.reminders);
+  const photoCount =
+    raw.data.photos && typeof raw.data.photos === 'object'
+      ? Object.keys(raw.data.photos).length
+      : 0;
+  const hasPhotos = photoCount > 0 || declaredType === 'photos';
 
   let hasLists = hasListsKey;
   let hasReminders = hasRemindersKey;
@@ -986,18 +1171,29 @@ export function validateBackupPayload(raw) {
   } else if (declaredType === 'reminders') {
     hasLists = false;
     hasReminders = hasRemindersKey;
+  } else if (declaredType === 'photos') {
+    hasLists = false;
+    hasReminders = false;
   }
 
-  if (!hasLists && !hasReminders) {
+  if (!hasLists && !hasReminders && !hasPhotos) {
     return {
       valid: false,
       error:
-        'O arquivo de backup não contém listas de compras nem listas de lembretes válidas.',
+        'O arquivo de backup não contém listas de compras, lembretes nem fotos válidas.',
     };
   }
 
   const detectedType =
-    hasLists && hasReminders ? 'all' : hasLists ? 'lists' : 'reminders';
+    declaredType === 'photos' && !hasLists && !hasReminders
+      ? 'photos'
+      : hasLists && hasReminders
+        ? 'all'
+        : hasLists
+          ? 'lists'
+          : hasReminders
+            ? 'reminders'
+            : 'photos';
 
   const listCount = hasLists ? raw.data.lists.length : 0;
   const normalizedReminders = hasReminders
@@ -1015,9 +1211,11 @@ export function validateBackupPayload(raw) {
       detectedType,
       hasLists,
       hasReminders,
+      hasPhotos,
       listCount,
       reminderListCount,
       reminderItemCount,
+      photoCount,
       exportedAt: raw.exportedAt || null,
     },
   };
@@ -1071,6 +1269,48 @@ export async function importBackupPayload(raw) {
     );
   }
 
+  if (raw.data.photos && typeof raw.data.photos === 'object') {
+    tasks.push(restoreTagPhotosFromBase64Map(raw.data.photos));
+  }
+
   await Promise.all(tasks);
+
+  // If this was a photos-only restore with a manifest, relink photoFilename on matching existing items
+  if (
+    !hasLists &&
+    Array.isArray(raw.data.photosManifest) &&
+    raw.data.photosManifest.length > 0
+  ) {
+    const existingLists = await loadLists();
+    let changed = false;
+    const byListAndItem = new Map();
+    for (const m of raw.data.photosManifest) {
+      if (m?.listId && m?.itemId && m?.photoFilename) {
+        byListAndItem.set(`${m.listId}::${m.itemId}`, m);
+      }
+    }
+    const relinked = existingLists.map((list) => {
+      const items = Array.isArray(list?.items) ? list.items : [];
+      let listChanged = false;
+      const nextItems = items.map((item) => {
+        const match = byListAndItem.get(`${list.id}::${item.id}`);
+        if (match && !item.photoFilename) {
+          listChanged = true;
+          changed = true;
+          return {
+            ...item,
+            photoFilename: match.photoFilename,
+            photoCapturedAt: match.photoCapturedAt || list.createdAt || null,
+          };
+        }
+        return item;
+      });
+      return listChanged ? { ...list, items: nextItems } : list;
+    });
+    if (changed) {
+      await saveLists(relinked);
+    }
+  }
+
   return check.summary;
 }

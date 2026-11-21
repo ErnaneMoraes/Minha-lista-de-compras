@@ -19,10 +19,16 @@ import ItemFormModal from '../../../components/modals/ShoppingModals/ItemFormMod
 import ListFormModal from '../../../components/modals/ShoppingModals/ListFormModal';
 import ConfirmModal from '../../../components/modals/ShoppingModals/ConfirmModal';
 import OcrProgressModal from '../../../components/modals/ShoppingModals/OcrProgressModal';
+import TagPhotoPreviewModal from '../../../components/modals/ShoppingModals/TagPhotoPreviewModal';
 import * as ImagePicker from 'expo-image-picker';
 import CameraCaptureModal from '../../../components/modals/ShoppingModals/CameraCaptureModal';
 import NativeOcrBridge from '../../../components/common/NativeOcrBridge';
 import { recognizeShelfLabel } from '../../services/labelOcr';
+import {
+  saveCompressedTagPhoto,
+  deleteTagPhotoFile,
+  getTagPhotoUri,
+} from '../../services/tagPhotoStorage';
 import { useAppSettings } from '../../context/AppSettingsContext';
 import {
   getListById,
@@ -50,6 +56,7 @@ const ShoppingListItemRow = React.memo(function ShoppingListItemRow({
   onDecrement,
   onIncrement,
   onRequestDelete,
+  onPreviewPhoto,
 }) {
   const qty = Number(item.quantity ?? item.quantidade ?? 1) || 1;
   const unitPrice =
@@ -64,6 +71,7 @@ const ShoppingListItemRow = React.memo(function ShoppingListItemRow({
   const subtotal = Math.round(qty * unitPrice * 100) / 100;
   const desc = item.description ?? item.notes ?? '';
   const catName = normalizeCategoryName(item.category);
+  const hasSavedPhoto = Boolean(item.photoFilename && getTagPhotoUri(item.photoFilename));
 
   return (
     <View
@@ -83,7 +91,10 @@ const ShoppingListItemRow = React.memo(function ShoppingListItemRow({
         disabled={isCompleted}
         onPress={() => onEdit(item)}
       >
-        <Text style={[localStyles.itemName, { color: colors.textoEscuro }]}>
+        <Text
+          style={[localStyles.itemName, { color: colors.textoEscuro }]}
+          numberOfLines={2}
+        >
           {item.name}
         </Text>
 
@@ -121,23 +132,45 @@ const ShoppingListItemRow = React.memo(function ShoppingListItemRow({
         ) : null}
       </TouchableOpacity>
 
-      {isCompleted ? (
-        <View
-          style={[
-            localStyles.lockedQtyBadge,
-            {
-              backgroundColor: colors.surfaceMuted,
-              borderColor: colors.borderColor,
-              borderWidth,
-            },
-          ]}
-        >
-          <Text style={[localStyles.stepperVal, { color: colors.textoEscuro }]}>
-            {qty} {item.unit || 'un'}
-          </Text>
-        </View>
-      ) : (
-        <View style={localStyles.itemRightActions}>
+      <View style={localStyles.itemRightActions}>
+        {hasSavedPhoto ? (
+          <TouchableOpacity
+            onPress={() => onPreviewPhoto?.(item)}
+            style={[
+              localStyles.photoBadgeBtn,
+              {
+                backgroundColor: colors.surfaceMuted,
+                borderColor: colors.borderColor,
+                borderWidth,
+              },
+            ]}
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            accessibilityLabel={`Ver foto da etiqueta de ${item.name}`}
+          >
+            <FontAwesome6
+              name="image"
+              size={13}
+              color={colors.principal}
+            />
+          </TouchableOpacity>
+        ) : null}
+
+        {isCompleted ? (
+          <View
+            style={[
+              localStyles.lockedQtyBadge,
+              {
+                backgroundColor: colors.surfaceMuted,
+                borderColor: colors.borderColor,
+                borderWidth,
+              },
+            ]}
+          >
+            <Text style={[localStyles.stepperVal, { color: colors.textoEscuro }]}>
+              {qty} {item.unit || 'un'}
+            </Text>
+          </View>
+        ) : (
           <View
             style={[
               localStyles.quantityStepper,
@@ -149,11 +182,25 @@ const ShoppingListItemRow = React.memo(function ShoppingListItemRow({
             ]}
           >
             <TouchableOpacity
-              onPress={() => onDecrement(item)}
+              onPress={() =>
+                qty <= 1 ? onRequestDelete(item) : onDecrement(item)
+              }
               style={[localStyles.stepperBtn, { backgroundColor: colors.card }]}
-              accessibilityLabel={`Diminuir quantidade de ${item.name}`}
+              accessibilityLabel={
+                qty <= 1
+                  ? `Excluir ${item.name}`
+                  : `Diminuir quantidade de ${item.name}`
+              }
             >
-              <FontAwesome6 name="minus" size={13} color={colors.textoEscuro} />
+              <FontAwesome6
+                name={qty <= 1 ? 'trash-can' : 'minus'}
+                size={13}
+                color={
+                  qty <= 1
+                    ? colors.danger || colors.logoutRed
+                    : colors.textoEscuro
+                }
+              />
             </TouchableOpacity>
 
             <Text style={[localStyles.stepperVal, { color: colors.textoEscuro }]}>
@@ -168,23 +215,8 @@ const ShoppingListItemRow = React.memo(function ShoppingListItemRow({
               <FontAwesome6 name="plus" size={13} color={colors.principal} />
             </TouchableOpacity>
           </View>
-
-          <TouchableOpacity
-            onPress={() => onRequestDelete(item)}
-            style={[
-              localStyles.deleteItemBtn,
-              { backgroundColor: colors.surfaceMuted },
-            ]}
-            accessibilityLabel={`Excluir ${item.name}`}
-          >
-            <FontAwesome6
-              name="trash-can"
-              size={13}
-              color={colors.logoutRed}
-            />
-          </TouchableOpacity>
-        </View>
-      )}
+        )}
+      </View>
     </View>
   );
 });
@@ -199,6 +231,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
     radiusButton,
     radiusInput,
     borderWidth,
+    saveTagPhotos,
     openSettings,
     dataVersion,
   } = useAppSettings();
@@ -207,6 +240,8 @@ export default function ListaDetalhesScreen({ route, navigation }) {
   const [isLoading, setIsLoading] = useState(true);
   const [searchText, setSearchText] = useState('');
   const [banner, setBanner] = useState(null);
+  const [previewPhotoItem, setPreviewPhotoItem] = useState(null);
+  const pendingDraftPhotoRef = useRef(null);
 
   const [isCameraModalVisible, setIsCameraModalVisible] = useState(false);
   const [cameraInitialPhoto, setCameraInitialPhoto] = useState(null);
@@ -396,13 +431,23 @@ export default function ListaDetalhesScreen({ route, navigation }) {
     const reminderTemplate = pendingReminderForCameraRef.current;
     pendingReminderForCameraRef.current = null;
 
-    const extracted = await recognizeShelfLabel({ uri, base64 }, (prog) => {
-      if (!ocrCancelledRef.current) {
-        setOcrProgress(prog);
-      }
-    });
+    const [extracted, savedPhoto] = await Promise.all([
+      recognizeShelfLabel({ uri, base64 }, (prog) => {
+        if (!ocrCancelledRef.current) {
+          setOcrProgress(prog);
+        }
+      }),
+      saveTagPhotos ? saveCompressedTagPhoto(uri) : Promise.resolve(null),
+    ]);
 
-    if (ocrCancelledRef.current) return;
+    if (ocrCancelledRef.current) {
+      if (savedPhoto?.photoFilename) {
+        deleteTagPhotoFile(savedPhoto.photoFilename).catch(() => {});
+      }
+      return;
+    }
+
+    pendingDraftPhotoRef.current = savedPhoto?.photoFilename || null;
 
     setIsOcrRunning(false);
     setOcrImageUri(null);
@@ -410,6 +455,13 @@ export default function ListaDetalhesScreen({ route, navigation }) {
     const detectedPrices = Array.isArray(extracted.detectedPrices)
       ? extracted.detectedPrices.filter((p) => Number(p) > 0)
       : [];
+
+    const photoFields = savedPhoto?.photoFilename
+      ? {
+          photoFilename: savedPhoto.photoFilename,
+          photoCapturedAt: savedPhoto.photoCapturedAt,
+        }
+      : {};
 
     const draftItem = reminderTemplate
       ? {
@@ -428,6 +480,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
           description:
             reminderTemplate.notes ?? reminderTemplate.description ?? '',
           sourceReminderId: reminderTemplate.id || null,
+          ...photoFields,
         }
       : {
           name: extracted.name || '',
@@ -442,6 +495,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
           category: normalizeCategoryName(extracted.category || 'Outros'),
           description: '',
           sourceReminderId: null,
+          ...photoFields,
         };
 
     if (detectedPrices.length >= 2) {
@@ -609,8 +663,13 @@ export default function ListaDetalhesScreen({ route, navigation }) {
         ...itemData,
         sourceReminderId:
           itemData.sourceReminderId || editingItem?.sourceReminderId || null,
+        photoFilename:
+          itemData.photoFilename || editingItem?.photoFilename || null,
+        photoCapturedAt:
+          itemData.photoCapturedAt || editingItem?.photoCapturedAt || null,
       });
     }
+    pendingDraftPhotoRef.current = null;
     if (updated) {
       setList(updated);
     }
@@ -662,6 +721,12 @@ export default function ListaDetalhesScreen({ route, navigation }) {
 
   const handleRequestDeleteItem = useCallback((item) => {
     setItemToDelete(item);
+  }, []);
+
+  const handlePreviewPhoto = useCallback((item) => {
+    if (item?.photoFilename && getTagPhotoUri(item.photoFilename)) {
+      setPreviewPhotoItem(item);
+    }
   }, []);
 
   const handleConfirmDeleteItem = async () => {
@@ -724,6 +789,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
         onDecrement={handleDecrement}
         onIncrement={handleIncrement}
         onRequestDelete={handleRequestDeleteItem}
+        onPreviewPhoto={handlePreviewPhoto}
       />
     ),
     [
@@ -735,6 +801,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
       handleDecrement,
       handleIncrement,
       handleRequestDeleteItem,
+      handlePreviewPhoto,
     ]
   );
 
@@ -1117,12 +1184,38 @@ export default function ListaDetalhesScreen({ route, navigation }) {
         initialItem={editingItem}
         mode={modalMode}
         ocrHint={ocrHint}
+        listName={list.name}
         onClose={() => {
+          if (pendingDraftPhotoRef.current && !editingItem?.id) {
+            deleteTagPhotoFile(pendingDraftPhotoRef.current).catch(() => {});
+            pendingDraftPhotoRef.current = null;
+          }
           setIsItemModalVisible(false);
           setEditingItem(null);
           setOcrHint('');
         }}
         onSubmit={handleSubmitModalItem}
+      />
+
+      <TagPhotoPreviewModal
+        visible={Boolean(previewPhotoItem)}
+        photoUri={
+          previewPhotoItem?.photoFilename
+            ? getTagPhotoUri(previewPhotoItem.photoFilename)
+            : null
+        }
+        productName={previewPhotoItem?.name}
+        listName={list.name}
+        price={
+          Number(
+            previewPhotoItem?.precoUnitario ??
+              previewPhotoItem?.price ??
+              previewPhotoItem?.preco ??
+              0
+          ) || 0
+        }
+        capturedAt={previewPhotoItem?.photoCapturedAt || list.createdAt}
+        onClose={() => setPreviewPhotoItem(null)}
       />
 
       <ListFormModal
@@ -1935,6 +2028,14 @@ const localStyles = StyleSheet.create({
   itemPriceText: {
     fontSize: 13,
     fontWeight: '700',
+  },
+  photoBadgeBtn: {
+    marginRight: 8,
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   subtotalText: {
     fontSize: 12,

@@ -13,11 +13,16 @@ import {
   isValidThemeId,
 } from '../theme/themes';
 import {
+  RETENTION_DAY_OPTIONS,
+  DEFAULT_RETENTION_DAYS,
+} from '../services/tagPhotoStorage';
+import {
   DEFAULT_SETTINGS,
   loadSettings,
   saveSettings,
   loadCustomThemeConfig,
   saveCustomThemeConfig,
+  runTagPhotoRetentionCleanup,
 } from '../storage/shoppingStorage';
 
 const defaultTheme = getThemeById(THEME_IDS.LIGHT);
@@ -29,6 +34,9 @@ const AppSettingsContext = createContext({
   darkMode: false,
   cameraCaptureMode: 'partial',
   cameraSource: 'native',
+  saveTagPhotos: true,
+  autoDeleteTagPhotos: false,
+  tagPhotoRetentionDays: DEFAULT_RETENTION_DAYS,
   colors: defaultTheme.colors,
   shape: defaultTheme.shape,
   radiusCard: defaultTheme.shape.radiusCard,
@@ -39,6 +47,7 @@ const AppSettingsContext = createContext({
   dataVersion: 0,
   setThemeId: async () => {},
   updateCustomThemeConfig: async () => {},
+  updatePhotoSettings: async () => {},
   toggleDarkMode: async () => {},
   setCameraSource: async () => {},
   notifyDataRestored: () => {},
@@ -57,10 +66,22 @@ export function AppSettingsProvider({ children }) {
   useEffect(() => {
     let mounted = true;
     Promise.all([loadSettings(), loadCustomThemeConfig()]).then(
-      ([loadedSettings, loadedCustom]) => {
+      async ([loadedSettings, loadedCustom]) => {
         if (!mounted) return;
         if (loadedSettings) {
           setSettings(loadedSettings);
+          if (loadedSettings.autoDeleteTagPhotos) {
+            try {
+              const removed = await runTagPhotoRetentionCleanup(
+                loadedSettings.tagPhotoRetentionDays
+              );
+              if (mounted && removed > 0) {
+                setDataVersion((v) => v + 1);
+              }
+            } catch {
+              // ignore cleanup errors on boot
+            }
+          }
         }
         if (loadedCustom) {
           setCustomThemeConfig(loadedCustom);
@@ -89,11 +110,7 @@ export function AppSettingsProvider({ children }) {
   );
 
   const updateCustomThemeConfig = useCallback(async (partial) => {
-    let merged = null;
-    setCustomThemeConfig((prev) => {
-      merged = { ...prev, ...(partial || {}) };
-      return merged;
-    });
+    setCustomThemeConfig((prev) => ({ ...prev, ...(partial || {}) }));
     const saved = await saveCustomThemeConfig(partial);
     const nextTheme = getThemeById(THEME_IDS.CUSTOM, saved);
     setSettings((prev) => ({
@@ -105,6 +122,43 @@ export function AppSettingsProvider({ children }) {
       themeId: THEME_IDS.CUSTOM,
       darkMode: nextTheme.isDark,
     });
+  }, []);
+
+  const updatePhotoSettings = useCallback(async (partial) => {
+    const patch = {};
+    if (partial?.saveTagPhotos !== undefined) {
+      patch.saveTagPhotos = Boolean(partial.saveTagPhotos);
+    }
+    if (partial?.autoDeleteTagPhotos !== undefined) {
+      patch.autoDeleteTagPhotos = Boolean(partial.autoDeleteTagPhotos);
+    }
+    if (partial?.tagPhotoRetentionDays !== undefined) {
+      const n = Number(partial.tagPhotoRetentionDays);
+      patch.tagPhotoRetentionDays = RETENTION_DAY_OPTIONS.includes(n)
+        ? n
+        : DEFAULT_RETENTION_DAYS;
+    }
+
+    let mergedNext = null;
+    setSettings((prev) => {
+      mergedNext = { ...prev, ...patch };
+      return mergedNext;
+    });
+    const saved = await saveSettings(patch);
+    const effective = saved || mergedNext || DEFAULT_SETTINGS;
+
+    if (effective.autoDeleteTagPhotos) {
+      try {
+        const removed = await runTagPhotoRetentionCleanup(
+          effective.tagPhotoRetentionDays
+        );
+        if (removed > 0) {
+          setDataVersion((v) => v + 1);
+        }
+      } catch {
+        // ignore cleanup errors
+      }
+    }
   }, []);
 
   const toggleDarkMode = useCallback(
@@ -147,6 +201,13 @@ export function AppSettingsProvider({ children }) {
         darkMode: activeTheme.isDark,
         cameraCaptureMode: 'partial',
         cameraSource: settings.cameraSource || 'native',
+        saveTagPhotos:
+          settings.saveTagPhotos !== undefined
+            ? Boolean(settings.saveTagPhotos)
+            : true,
+        autoDeleteTagPhotos: Boolean(settings.autoDeleteTagPhotos),
+        tagPhotoRetentionDays:
+          settings.tagPhotoRetentionDays || DEFAULT_RETENTION_DAYS,
         colors: activeTheme.colors,
         shape: activeTheme.shape,
         radiusCard: activeTheme.shape.radiusCard,
@@ -157,6 +218,7 @@ export function AppSettingsProvider({ children }) {
         dataVersion,
         setThemeId,
         updateCustomThemeConfig,
+        updatePhotoSettings,
         toggleDarkMode,
         setCameraSource,
         notifyDataRestored,

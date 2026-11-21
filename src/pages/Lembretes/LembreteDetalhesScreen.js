@@ -191,21 +191,24 @@ const ReminderListItemRow = React.memo(function ReminderListItemRow({
           ]}
         >
           <TouchableOpacity
-            onPress={() => onDecrement(item)}
-            disabled={isMinQty}
-            style={[
-              localStyles.stepperBtn,
-              {
-                backgroundColor: colors.card,
-                opacity: isMinQty ? 0.4 : 1,
-              },
-            ]}
-            accessibilityLabel={`Diminuir quantidade de ${item.name}`}
+            onPress={() =>
+              isMinQty ? onRequestDelete(item) : onDecrement(item)
+            }
+            style={[localStyles.stepperBtn, { backgroundColor: colors.card }]}
+            accessibilityLabel={
+              isMinQty
+                ? `Excluir ${item.name}`
+                : `Diminuir quantidade de ${item.name}`
+            }
           >
             <FontAwesome6
-              name="minus"
+              name={isMinQty ? 'trash-can' : 'minus'}
               size={13}
-              color={isMinQty ? colors.textMuted : colors.textoEscuro}
+              color={
+                isMinQty
+                  ? colors.danger || colors.logoutRed
+                  : colors.textoEscuro
+              }
             />
           </TouchableOpacity>
 
@@ -221,21 +224,6 @@ const ReminderListItemRow = React.memo(function ReminderListItemRow({
             <FontAwesome6 name="plus" size={13} color={colors.principal} />
           </TouchableOpacity>
         </View>
-
-        <TouchableOpacity
-          onPress={() => onRequestDelete(item)}
-          style={[
-            localStyles.deleteItemBtn,
-            { backgroundColor: colors.surfaceMuted },
-          ]}
-          accessibilityLabel={`Excluir ${item.name}`}
-        >
-          <FontAwesome6
-            name="trash-can"
-            size={13}
-            color={colors.logoutRed}
-          />
-        </TouchableOpacity>
       </View>
     </View>
   );
