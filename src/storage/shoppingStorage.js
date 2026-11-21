@@ -1,5 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
+  isValidThemeId,
+  getThemeById,
+  THEME_IDS,
+  DEFAULT_CUSTOM_THEME_CONFIG,
+} from '../theme/themes';
+import {
   STANDARD_CATEGORIES,
   normalizeCategoryName,
   getCategoryMeta,
@@ -13,11 +19,58 @@ const STORAGE_KEYS = {
   HISTORY: '@mlc_offline:history',
   REMINDERS: '@mlc_offline:reminders',
   SETTINGS: '@mlc_offline:settings',
+  ONBOARDING_COMPLETED: '@mlc_offline:onboarding_completed',
+  CUSTOM_THEME: '@mlc_offline:custom_theme',
 };
 
+export async function loadCustomThemeConfig() {
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.CUSTOM_THEME);
+    if (!raw) return { ...DEFAULT_CUSTOM_THEME_CONFIG };
+    const parsed = JSON.parse(raw);
+    return {
+      ...DEFAULT_CUSTOM_THEME_CONFIG,
+      ...(parsed && typeof parsed === 'object' ? parsed : {}),
+    };
+  } catch {
+    return { ...DEFAULT_CUSTOM_THEME_CONFIG };
+  }
+}
+
+export async function saveCustomThemeConfig(partial) {
+  const current = await loadCustomThemeConfig();
+  const next = {
+    ...current,
+    ...(partial && typeof partial === 'object' ? partial : {}),
+  };
+  await AsyncStorage.setItem(STORAGE_KEYS.CUSTOM_THEME, JSON.stringify(next));
+  return next;
+}
+
+export async function loadOnboardingCompleted() {
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.ONBOARDING_COMPLETED);
+    return raw === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export async function saveOnboardingCompleted(completed = true) {
+  try {
+    await AsyncStorage.setItem(
+      STORAGE_KEYS.ONBOARDING_COMPLETED,
+      completed ? 'true' : 'false'
+    );
+  } catch {
+    // ignore storage write errors
+  }
+}
+
 export const DEFAULT_SETTINGS = {
+  themeId: THEME_IDS.LIGHT,
   darkMode: false,
-  cameraCaptureMode: 'partial', // 'full' | 'partial'
+  cameraCaptureMode: 'partial', // fixed default: partial capture
   cameraSource: 'native',
 };
 
@@ -201,10 +254,16 @@ export async function loadSettings() {
     const raw = await AsyncStorage.getItem(STORAGE_KEYS.SETTINGS);
     if (!raw) return { ...DEFAULT_SETTINGS };
     const parsed = JSON.parse(raw);
+    const resolvedThemeId = isValidThemeId(parsed?.themeId)
+      ? parsed.themeId
+      : parsed?.darkMode
+        ? THEME_IDS.DARK
+        : THEME_IDS.LIGHT;
+    const theme = getThemeById(resolvedThemeId);
     return {
-      darkMode: Boolean(parsed?.darkMode),
-      cameraCaptureMode:
-        parsed?.cameraCaptureMode === 'full' ? 'full' : 'partial',
+      themeId: resolvedThemeId,
+      darkMode: theme.isDark,
+      cameraCaptureMode: 'partial',
       cameraSource:
         parsed?.cameraSource === 'inapp' ? 'inapp' : 'native',
     };
@@ -777,6 +836,33 @@ export async function updateReminderListItem(reminderListId, itemId, updates) {
     await learnCategoryAssociation(learnedName, learnedCat);
   }
 
+  await saveReminderLists(updated);
+  return updated.find((list) => list.id === reminderListId) || null;
+}
+
+export async function getReminderListById(reminderListId) {
+  const lists = await loadReminderLists();
+  return lists.find((list) => list.id === reminderListId) || null;
+}
+
+export async function updateReminderListItemQuantity(
+  reminderListId,
+  itemId,
+  delta
+) {
+  const lists = await loadReminderLists();
+  const updated = lists.map((list) => {
+    if (list.id !== reminderListId) return list;
+    return {
+      ...list,
+      items: (list.items || []).map((item) => {
+        if (item.id !== itemId) return item;
+        const current = Number(item.quantity) || 1;
+        const nextQty = Math.max(1, Math.round((current + delta) * 100) / 100);
+        return { ...item, quantity: nextQty };
+      }),
+    };
+  });
   await saveReminderLists(updated);
   return updated.find((list) => list.id === reminderListId) || null;
 }

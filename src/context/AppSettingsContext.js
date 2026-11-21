@@ -1,20 +1,45 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { getThemeColors } from '../../components/StyleSheet/Colors';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+} from 'react';
+import {
+  THEME_IDS,
+  DEFAULT_CUSTOM_THEME_CONFIG,
+  getThemeById,
+  isValidThemeId,
+} from '../theme/themes';
 import {
   DEFAULT_SETTINGS,
   loadSettings,
   saveSettings,
+  loadCustomThemeConfig,
+  saveCustomThemeConfig,
 } from '../storage/shoppingStorage';
 
+const defaultTheme = getThemeById(THEME_IDS.LIGHT);
+
 const AppSettingsContext = createContext({
+  themeId: THEME_IDS.LIGHT,
+  theme: defaultTheme,
+  customThemeConfig: DEFAULT_CUSTOM_THEME_CONFIG,
   darkMode: false,
   cameraCaptureMode: 'partial',
   cameraSource: 'native',
-  colors: getThemeColors(false),
+  colors: defaultTheme.colors,
+  shape: defaultTheme.shape,
+  radiusCard: defaultTheme.shape.radiusCard,
+  radiusButton: defaultTheme.shape.radiusButton,
+  radiusInput: defaultTheme.shape.radiusInput,
+  borderWidth: defaultTheme.shape.borderWidth,
   isSettingsVisible: false,
   dataVersion: 0,
+  setThemeId: async () => {},
+  updateCustomThemeConfig: async () => {},
   toggleDarkMode: async () => {},
-  setCameraCaptureMode: async () => {},
   setCameraSource: async () => {},
   notifyDataRestored: () => {},
   openSettings: () => {},
@@ -23,32 +48,74 @@ const AppSettingsContext = createContext({
 
 export function AppSettingsProvider({ children }) {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [customThemeConfig, setCustomThemeConfig] = useState(
+    DEFAULT_CUSTOM_THEME_CONFIG
+  );
   const [isSettingsVisible, setIsSettingsVisible] = useState(false);
   const [dataVersion, setDataVersion] = useState(0);
 
   useEffect(() => {
     let mounted = true;
-    loadSettings().then((loaded) => {
-      if (mounted && loaded) {
-        setSettings(loaded);
+    Promise.all([loadSettings(), loadCustomThemeConfig()]).then(
+      ([loadedSettings, loadedCustom]) => {
+        if (!mounted) return;
+        if (loadedSettings) {
+          setSettings(loadedSettings);
+        }
+        if (loadedCustom) {
+          setCustomThemeConfig(loadedCustom);
+        }
       }
-    });
+    );
     return () => {
       mounted = false;
     };
   }, []);
 
-  const toggleDarkMode = useCallback(async (nextVal) => {
-    const darkMode = typeof nextVal === 'boolean' ? nextVal : !settings.darkMode;
-    setSettings((prev) => ({ ...prev, darkMode }));
-    await saveSettings({ darkMode });
-  }, [settings.darkMode]);
+  const setThemeId = useCallback(
+    async (nextThemeId) => {
+      const safeId = isValidThemeId(nextThemeId)
+        ? nextThemeId
+        : THEME_IDS.LIGHT;
+      const nextTheme = getThemeById(safeId, customThemeConfig);
+      setSettings((prev) => ({
+        ...prev,
+        themeId: safeId,
+        darkMode: nextTheme.isDark,
+      }));
+      await saveSettings({ themeId: safeId, darkMode: nextTheme.isDark });
+    },
+    [customThemeConfig]
+  );
 
-  const setCameraCaptureMode = useCallback(async (mode) => {
-    const cameraCaptureMode = mode === 'full' ? 'full' : 'partial';
-    setSettings((prev) => ({ ...prev, cameraCaptureMode }));
-    await saveSettings({ cameraCaptureMode });
+  const updateCustomThemeConfig = useCallback(async (partial) => {
+    let merged = null;
+    setCustomThemeConfig((prev) => {
+      merged = { ...prev, ...(partial || {}) };
+      return merged;
+    });
+    const saved = await saveCustomThemeConfig(partial);
+    const nextTheme = getThemeById(THEME_IDS.CUSTOM, saved);
+    setSettings((prev) => ({
+      ...prev,
+      themeId: THEME_IDS.CUSTOM,
+      darkMode: nextTheme.isDark,
+    }));
+    await saveSettings({
+      themeId: THEME_IDS.CUSTOM,
+      darkMode: nextTheme.isDark,
+    });
   }, []);
+
+  const toggleDarkMode = useCallback(
+    async (nextVal) => {
+      const goDark =
+        typeof nextVal === 'boolean' ? nextVal : !settings.darkMode;
+      const nextThemeId = goDark ? THEME_IDS.DARK : THEME_IDS.LIGHT;
+      await setThemeId(nextThemeId);
+    },
+    [settings.darkMode, setThemeId]
+  );
 
   const setCameraSource = useCallback(async (source) => {
     const cameraSource = source === 'inapp' ? 'inapp' : 'native';
@@ -66,19 +133,31 @@ export function AppSettingsProvider({ children }) {
   const openSettings = useCallback(() => setIsSettingsVisible(true), []);
   const closeSettings = useCallback(() => setIsSettingsVisible(false), []);
 
-  const colors = getThemeColors(settings.darkMode);
+  const activeTheme = useMemo(
+    () => getThemeById(settings.themeId, customThemeConfig),
+    [settings.themeId, customThemeConfig]
+  );
 
   return (
     <AppSettingsContext.Provider
       value={{
-        darkMode: settings.darkMode,
-        cameraCaptureMode: settings.cameraCaptureMode,
+        themeId: activeTheme.id,
+        theme: activeTheme,
+        customThemeConfig,
+        darkMode: activeTheme.isDark,
+        cameraCaptureMode: 'partial',
         cameraSource: settings.cameraSource || 'native',
-        colors,
+        colors: activeTheme.colors,
+        shape: activeTheme.shape,
+        radiusCard: activeTheme.shape.radiusCard,
+        radiusButton: activeTheme.shape.radiusButton,
+        radiusInput: activeTheme.shape.radiusInput,
+        borderWidth: activeTheme.shape.borderWidth,
         isSettingsVisible,
         dataVersion,
+        setThemeId,
+        updateCustomThemeConfig,
         toggleDarkMode,
-        setCameraCaptureMode,
         setCameraSource,
         notifyDataRestored,
         openSettings,

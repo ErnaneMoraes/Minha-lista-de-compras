@@ -13,7 +13,7 @@ export default function ConfirmModal({
   onCancel,
   onConfirm,
 }) {
-  const { colors } = useAppSettings();
+  const { colors, radiusCard, borderWidth } = useAppSettings();
 
   return (
     <Modal
@@ -29,7 +29,8 @@ export default function ConfirmModal({
             {
               backgroundColor: colors.card,
               borderColor: colors.borderColor,
-              borderWidth: 1,
+              borderWidth,
+              borderRadius: radiusCard,
             },
           ]}
         >

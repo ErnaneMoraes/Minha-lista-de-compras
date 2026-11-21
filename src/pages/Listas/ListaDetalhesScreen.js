@@ -40,11 +40,168 @@ import {
   normalizeCategoryName,
 } from '../../storage/shoppingStorage';
 
+const ShoppingListItemRow = React.memo(function ShoppingListItemRow({
+  item,
+  isCompleted,
+  colors,
+  radiusCard,
+  borderWidth,
+  onEdit,
+  onDecrement,
+  onIncrement,
+  onRequestDelete,
+}) {
+  const qty = Number(item.quantity ?? item.quantidade ?? 1) || 1;
+  const unitPrice =
+    Number(
+      item.precoUnitario ??
+        item.price ??
+        item.preco ??
+        item.retailPrice ??
+        item.wholesalePrice ??
+        0
+    ) || 0;
+  const subtotal = Math.round(qty * unitPrice * 100) / 100;
+  const desc = item.description ?? item.notes ?? '';
+  const catName = normalizeCategoryName(item.category);
+
+  return (
+    <View
+      style={[
+        localStyles.itemCard,
+        {
+          backgroundColor: colors.card,
+          borderColor: colors.borderColor,
+          borderRadius: radiusCard,
+          borderWidth,
+        },
+      ]}
+    >
+      <TouchableOpacity
+        style={localStyles.itemMainArea}
+        activeOpacity={isCompleted ? 1 : 0.75}
+        disabled={isCompleted}
+        onPress={() => onEdit(item)}
+      >
+        <Text style={[localStyles.itemName, { color: colors.textoEscuro }]}>
+          {item.name}
+        </Text>
+
+        <View style={localStyles.itemMetaRow}>
+          <View
+            style={[
+              localStyles.categoryBadge,
+              { backgroundColor: colors.badgeBg || colors.verdeSuave },
+            ]}
+          >
+            <Text
+              style={[
+                localStyles.categoryBadgeText,
+                { color: colors.badgeText || colors.principal },
+              ]}
+            >
+              {catName}
+            </Text>
+          </View>
+          <Text style={[localStyles.itemPriceText, { color: colors.principal }]}>
+            {formatCurrency(unitPrice)} / {item.unit || 'un'}
+          </Text>
+        </View>
+
+        {qty > 1 ? (
+          <Text style={[localStyles.subtotalText, { color: colors.textMuted }]}>
+            Subtotal: {formatCurrency(subtotal)}
+          </Text>
+        ) : null}
+
+        {desc ? (
+          <Text style={[localStyles.itemDescription, { color: colors.textMuted }]}>
+            {desc}
+          </Text>
+        ) : null}
+      </TouchableOpacity>
+
+      {isCompleted ? (
+        <View
+          style={[
+            localStyles.lockedQtyBadge,
+            {
+              backgroundColor: colors.surfaceMuted,
+              borderColor: colors.borderColor,
+              borderWidth,
+            },
+          ]}
+        >
+          <Text style={[localStyles.stepperVal, { color: colors.textoEscuro }]}>
+            {qty} {item.unit || 'un'}
+          </Text>
+        </View>
+      ) : (
+        <View style={localStyles.itemRightActions}>
+          <View
+            style={[
+              localStyles.quantityStepper,
+              {
+                backgroundColor: colors.surfaceMuted,
+                borderColor: colors.borderColor,
+                borderWidth,
+              },
+            ]}
+          >
+            <TouchableOpacity
+              onPress={() => onDecrement(item)}
+              style={[localStyles.stepperBtn, { backgroundColor: colors.card }]}
+              accessibilityLabel={`Diminuir quantidade de ${item.name}`}
+            >
+              <FontAwesome6 name="minus" size={13} color={colors.textoEscuro} />
+            </TouchableOpacity>
+
+            <Text style={[localStyles.stepperVal, { color: colors.textoEscuro }]}>
+              {qty}
+            </Text>
+
+            <TouchableOpacity
+              onPress={() => onIncrement(item)}
+              style={[localStyles.stepperBtn, { backgroundColor: colors.card }]}
+              accessibilityLabel={`Aumentar quantidade de ${item.name}`}
+            >
+              <FontAwesome6 name="plus" size={13} color={colors.principal} />
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity
+            onPress={() => onRequestDelete(item)}
+            style={[
+              localStyles.deleteItemBtn,
+              { backgroundColor: colors.surfaceMuted },
+            ]}
+            accessibilityLabel={`Excluir ${item.name}`}
+          >
+            <FontAwesome6
+              name="trash-can"
+              size={13}
+              color={colors.logoutRed}
+            />
+          </TouchableOpacity>
+        </View>
+      )}
+    </View>
+  );
+});
+
 export default function ListaDetalhesScreen({ route, navigation }) {
   const listId = route?.params?.listId;
   const insets = useSafeAreaInsets();
   const bottomPad = Math.max(7, insets.bottom);
-  const { colors, openSettings, dataVersion } = useAppSettings();
+  const {
+    colors,
+    radiusCard,
+    radiusButton,
+    radiusInput,
+    borderWidth,
+    openSettings,
+    dataVersion,
+  } = useAppSettings();
 
   const [list, setList] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -429,13 +586,18 @@ export default function ListaDetalhesScreen({ route, navigation }) {
     setIsItemModalVisible(true);
   };
 
-  const handleOpenEditItem = (item) => {
-    if (list?.completed) return;
-    setEditingItem(item);
-    setOcrHint('');
-    setModalMode('edit');
-    setIsItemModalVisible(true);
-  };
+  const isCompletedFlag = Boolean(list?.completed);
+
+  const handleOpenEditItem = useCallback(
+    (item) => {
+      if (isCompletedFlag) return;
+      setEditingItem(item);
+      setOcrHint('');
+      setModalMode('edit');
+      setIsItemModalVisible(true);
+    },
+    [isCompletedFlag]
+  );
 
   const handleSubmitModalItem = async (itemData) => {
     if (!list || list.completed) return;
@@ -475,22 +637,32 @@ export default function ListaDetalhesScreen({ route, navigation }) {
     setShowFinalizeConfirm(false);
   };
 
-  const handleIncrement = async (item) => {
-    if (!list || list.completed) return;
-    const updated = await updateItemQuantity(list.id, item.id, 1);
-    if (updated) setList(updated);
-  };
+  const handleIncrement = useCallback(
+    async (item) => {
+      if (!listId || isCompletedFlag) return;
+      const updated = await updateItemQuantity(listId, item.id, 1);
+      if (updated) setList(updated);
+    },
+    [listId, isCompletedFlag]
+  );
 
-  const handleDecrement = async (item) => {
-    if (!list || list.completed) return;
-    const currentQty = Number(item.quantity) || 1;
-    if (currentQty <= 1) {
-      setItemToDelete(item);
-      return;
-    }
-    const updated = await updateItemQuantity(list.id, item.id, -1);
-    if (updated) setList(updated);
-  };
+  const handleDecrement = useCallback(
+    async (item) => {
+      if (!listId || isCompletedFlag) return;
+      const currentQty = Number(item.quantity) || 1;
+      if (currentQty <= 1) {
+        setItemToDelete(item);
+        return;
+      }
+      const updated = await updateItemQuantity(listId, item.id, -1);
+      if (updated) setList(updated);
+    },
+    [listId, isCompletedFlag]
+  );
+
+  const handleRequestDeleteItem = useCallback((item) => {
+    setItemToDelete(item);
+  }, []);
 
   const handleConfirmDeleteItem = async () => {
     if (!list || !itemToDelete || list.completed) return;
@@ -539,6 +711,32 @@ export default function ListaDetalhesScreen({ route, navigation }) {
   };
 
   const stats = useMemo(() => calculateListStats(list), [list]);
+
+  const renderItem = useCallback(
+    ({ item }) => (
+      <ShoppingListItemRow
+        item={item}
+        isCompleted={isCompletedFlag}
+        colors={colors}
+        radiusCard={radiusCard}
+        borderWidth={borderWidth}
+        onEdit={handleOpenEditItem}
+        onDecrement={handleDecrement}
+        onIncrement={handleIncrement}
+        onRequestDelete={handleRequestDeleteItem}
+      />
+    ),
+    [
+      isCompletedFlag,
+      colors,
+      radiusCard,
+      borderWidth,
+      handleOpenEditItem,
+      handleDecrement,
+      handleIncrement,
+      handleRequestDeleteItem,
+    ]
+  );
 
   if (isLoading) {
     return (
@@ -625,141 +823,6 @@ export default function ListaDetalhesScreen({ route, navigation }) {
     }
   }
 
-  const renderItem = ({ item }) => {
-    const qty = Number(item.quantity ?? item.quantidade ?? 1) || 1;
-    const unitPrice =
-      Number(
-        item.precoUnitario ??
-          item.price ??
-          item.preco ??
-          item.retailPrice ??
-          item.wholesalePrice ??
-          0
-      ) || 0;
-    const subtotal = Math.round(qty * unitPrice * 100) / 100;
-    const desc = item.description ?? item.notes ?? '';
-    const catName = normalizeCategoryName(item.category);
-
-    return (
-      <View
-        style={[
-          localStyles.itemCard,
-          {
-            backgroundColor: colors.card,
-            borderColor: colors.borderColor,
-          },
-        ]}
-      >
-        <TouchableOpacity
-          style={localStyles.itemMainArea}
-          activeOpacity={isCompleted ? 1 : 0.75}
-          disabled={isCompleted}
-          onPress={() => handleOpenEditItem(item)}
-        >
-          <Text style={[localStyles.itemName, { color: colors.textoEscuro }]}>
-            {item.name}
-          </Text>
-
-          <View style={localStyles.itemMetaRow}>
-            <View
-              style={[
-                localStyles.categoryBadge,
-                { backgroundColor: colors.verdeSuave },
-              ]}
-            >
-              <Text
-                style={[
-                  localStyles.categoryBadgeText,
-                  { color: colors.principal },
-                ]}
-              >
-                {catName}
-              </Text>
-            </View>
-            <Text style={[localStyles.itemPriceText, { color: colors.principal }]}>
-              {formatCurrency(unitPrice)} / {item.unit || 'un'}
-            </Text>
-          </View>
-
-          {qty > 1 ? (
-            <Text style={[localStyles.subtotalText, { color: colors.textMuted }]}>
-              Subtotal: {formatCurrency(subtotal)}
-            </Text>
-          ) : null}
-
-          {desc ? (
-            <Text style={[localStyles.itemDescription, { color: colors.textMuted }]}>
-              {desc}
-            </Text>
-          ) : null}
-        </TouchableOpacity>
-
-        {isCompleted ? (
-          <View
-            style={[
-              localStyles.lockedQtyBadge,
-              {
-                backgroundColor: colors.surfaceMuted,
-                borderColor: colors.borderColor,
-              },
-            ]}
-          >
-            <Text style={[localStyles.stepperVal, { color: colors.textoEscuro }]}>
-              {qty} {item.unit || 'un'}
-            </Text>
-          </View>
-        ) : (
-          <View style={localStyles.itemRightActions}>
-            <View
-              style={[
-                localStyles.quantityStepper,
-                {
-                  backgroundColor: colors.surfaceMuted,
-                  borderColor: colors.borderColor,
-                },
-              ]}
-            >
-              <TouchableOpacity
-                onPress={() => handleDecrement(item)}
-                style={[localStyles.stepperBtn, { backgroundColor: colors.card }]}
-                accessibilityLabel={`Diminuir quantidade de ${item.name}`}
-              >
-                <FontAwesome6 name="minus" size={13} color={colors.textoEscuro} />
-              </TouchableOpacity>
-
-              <Text style={[localStyles.stepperVal, { color: colors.textoEscuro }]}>
-                {qty}
-              </Text>
-
-              <TouchableOpacity
-                onPress={() => handleIncrement(item)}
-                style={[localStyles.stepperBtn, { backgroundColor: colors.card }]}
-                accessibilityLabel={`Aumentar quantidade de ${item.name}`}
-              >
-                <FontAwesome6 name="plus" size={13} color={colors.principal} />
-              </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity
-              onPress={() => setItemToDelete(item)}
-              style={[
-                localStyles.deleteItemBtn,
-                { backgroundColor: colors.surfaceMuted },
-              ]}
-              accessibilityLabel={`Excluir ${item.name}`}
-            >
-              <FontAwesome6
-                name="trash-can"
-                size={13}
-                color={colors.logoutRed}
-              />
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
-    );
-  };
-
   return (
     <View style={[globalStyles.screen, { backgroundColor: colors.background }]}>
       <NativeOcrBridge />
@@ -839,6 +902,8 @@ export default function ListaDetalhesScreen({ route, navigation }) {
               {
                 backgroundColor: colors.card,
                 borderColor: colors.borderColor,
+                borderRadius: radiusInput,
+                borderWidth,
               },
             ]}
           >
@@ -916,6 +981,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
                 {
                   backgroundColor: colors.verdeSuave,
                   borderColor: colors.principal,
+                  borderRadius: radiusButton,
                 },
               ]}
               onPress={handleOpenImportModal}
@@ -931,7 +997,10 @@ export default function ListaDetalhesScreen({ route, navigation }) {
             <TouchableOpacity
               style={[
                 localStyles.manualAddButton,
-                { backgroundColor: colors.principal },
+                {
+                  backgroundColor: colors.principal,
+                  borderRadius: radiusButton,
+                },
               ]}
               onPress={handleOpenManualAdd}
             >
@@ -953,7 +1022,10 @@ export default function ListaDetalhesScreen({ route, navigation }) {
             <TouchableOpacity
               style={[
                 localStyles.cameraButton,
-                { backgroundColor: colors.verdePrincipal },
+                {
+                  backgroundColor: colors.verdePrincipal,
+                  borderRadius: radiusButton,
+                },
               ]}
               onPress={() => handleCameraPress(null)}
               accessibilityLabel="Fotografar etiqueta de preço"

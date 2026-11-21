@@ -4,11 +4,12 @@ import {
   View,
   Text,
   TouchableOpacity,
-  Switch,
   StyleSheet,
   ScrollView,
   ActivityIndicator,
   Platform,
+  LayoutAnimation,
+  UIManager,
 } from 'react-native';
 import { File, Paths } from 'expo-file-system';
 import * as LegacyFileSystem from 'expo-file-system/legacy';
@@ -18,11 +19,27 @@ import { FontAwesome6 } from '@expo/vector-icons';
 import ConfirmModal from './ConfirmModal';
 import { useAppSettings } from '../../../src/context/AppSettingsContext';
 import {
+  THEME_IDS,
+  THEME_LIST,
+  CUSTOM_BASE_MODES,
+  CUSTOM_ACCENT_PALETTE,
+  CUSTOM_BORDER_STYLES,
+  CUSTOM_BORDER_THICKNESS,
+  buildCustomTheme,
+} from '../../../src/theme/themes';
+import {
   exportBackupPayload,
   validateBackupPayload,
   importBackupPayload,
   formatDateBR,
 } from '../../../src/storage/shoppingStorage';
+
+if (
+  Platform.OS === 'android' &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 const EXPORT_OPTIONS = [
   {
@@ -45,17 +62,24 @@ const EXPORT_OPTIONS = [
   },
 ];
 
-export default function SettingsModal() {
+export default function SettingsModal({ onOpenHelp, onOpenAbout }) {
   const {
-    darkMode,
-    cameraCaptureMode,
+    themeId,
+    theme,
+    customThemeConfig,
     colors,
+    radiusCard,
+    radiusButton,
+    borderWidth,
     isSettingsVisible,
-    toggleDarkMode,
-    setCameraCaptureMode,
+    setThemeId,
+    updateCustomThemeConfig,
     notifyDataRestored,
     closeSettings,
   } = useAppSettings();
+
+  const [expandedSection, setExpandedSection] = useState(null); // null | 'themes' | 'backup' | 'support'
+  const [showCustomEditor, setShowCustomEditor] = useState(false);
 
   const [isBackupBusy, setIsBackupBusy] = useState(false);
   const [backupMessage, setBackupMessage] = useState(null);
@@ -64,12 +88,45 @@ export default function SettingsModal() {
 
   useEffect(() => {
     if (isSettingsVisible) {
+      setExpandedSection(null);
+      setShowCustomEditor(false);
       setBackupMessage(null);
       setPendingRestore(null);
       setShowExportSelector(false);
       setIsBackupBusy(false);
     }
   }, [isSettingsVisible]);
+
+  const toggleSection = (sectionKey) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedSection((prev) => (prev === sectionKey ? null : sectionKey));
+  };
+
+  const handleSelectPresetTheme = (id) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setShowCustomEditor(false);
+    setThemeId(id);
+  };
+
+  const handleSelectCustomTheme = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    if (themeId !== THEME_IDS.CUSTOM) {
+      setThemeId(THEME_IDS.CUSTOM);
+      setShowCustomEditor(true);
+    } else {
+      setShowCustomEditor((prev) => !prev);
+    }
+  };
+
+  const handleToggleCustomEditor = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    if (themeId !== THEME_IDS.CUSTOM) {
+      setThemeId(THEME_IDS.CUSTOM);
+      setShowCustomEditor(true);
+    } else {
+      setShowCustomEditor((prev) => !prev);
+    }
+  };
 
   const handleRunExport = async (exportType = 'all') => {
     setShowExportSelector(false);
@@ -287,6 +344,13 @@ export default function SettingsModal() {
     }
   };
 
+  const customThemePreview = buildCustomTheme(customThemeConfig);
+  const isCustomActive = themeId === THEME_IDS.CUSTOM;
+
+  const isThemesExpanded = expandedSection === 'themes';
+  const isBackupExpanded = expandedSection === 'backup';
+  const isSupportExpanded = expandedSection === 'support';
+
   return (
     <Modal
       animationType="fade"
@@ -301,9 +365,12 @@ export default function SettingsModal() {
             {
               backgroundColor: colors.card,
               borderColor: colors.borderColor,
+              borderRadius: Math.min(22, radiusCard + 4),
+              borderWidth,
             },
           ]}
         >
+          {/* Modal Header */}
           <View style={styles.headerRow}>
             <View style={styles.titleWrap}>
               <FontAwesome6 name="gear" size={18} color={colors.principal} />
@@ -313,7 +380,13 @@ export default function SettingsModal() {
             </View>
             <TouchableOpacity
               onPress={closeSettings}
-              style={[styles.closeIconBtn, { backgroundColor: colors.surfaceMuted }]}
+              style={[
+                styles.closeIconBtn,
+                {
+                  backgroundColor: colors.surfaceMuted,
+                  borderRadius: radiusButton,
+                },
+              ]}
               accessibilityLabel="Fechar configurações"
             >
               <FontAwesome6 name="xmark" size={16} color={colors.textoEscuro} />
@@ -324,247 +397,857 @@ export default function SettingsModal() {
             showsVerticalScrollIndicator={false}
             style={styles.scrollArea}
           >
-            {/* Tema */}
+            {/* 1. ACCORDION: TEMAS */}
             <View
               style={[
-                styles.sectionBox,
+                styles.accordionCard,
                 {
                   backgroundColor: colors.surfaceMuted,
-                  borderColor: colors.borderColor,
+                  borderColor: isThemesExpanded
+                    ? colors.principal
+                    : colors.borderColor,
+                  borderRadius: radiusCard,
+                  borderWidth,
                 },
               ]}
             >
-              <View style={styles.switchRow}>
-                <View style={{ flex: 1, marginRight: 12 }}>
-                  <View style={styles.labelWithIcon}>
-                    <FontAwesome6
-                      name={darkMode ? 'moon' : 'sun'}
-                      size={15}
-                      color={colors.principal}
-                    />
-                    <Text style={[styles.sectionTitle, { color: colors.textoEscuro }]}>
-                      Modo Noturno
-                    </Text>
-                  </View>
-                  <Text style={[styles.sectionDesc, { color: colors.textMuted }]}>
-                    {darkMode
-                      ? 'Tema escuro ativado em todas as telas.'
-                      : 'Tema claro padrão em verde e branco/cinza.'}
-                  </Text>
-                </View>
-                <Switch
-                  value={darkMode}
-                  onValueChange={toggleDarkMode}
-                  trackColor={{ false: colors.borderColor, true: colors.verdePrincipal }}
-                  thumbColor="#FFFFFF"
-                />
-              </View>
-            </View>
-
-            {/* Modo de Captura da Câmera (Parcial vs Completa) */}
-            <View
-              style={[
-                styles.sectionBox,
-                {
-                  backgroundColor: colors.surfaceMuted,
-                  borderColor: colors.borderColor,
-                },
-              ]}
-            >
-              <View style={styles.labelWithIcon}>
-                <FontAwesome6 name="crop" size={15} color={colors.principal} />
-                <Text style={[styles.sectionTitle, { color: colors.textoEscuro }]}>
-                  Enquadramento da Etiqueta
-                </Text>
-              </View>
-              <Text style={[styles.sectionDesc, { color: colors.textMuted, marginBottom: 12 }]}>
-                Escolha como recortar a imagem capturada para leitura do preço:
-              </Text>
-
               <TouchableOpacity
                 activeOpacity={0.8}
-                onPress={() => setCameraCaptureMode('partial')}
-                style={[
-                  styles.optionCard,
-                  {
-                    backgroundColor: colors.card,
-                    borderColor:
-                      cameraCaptureMode === 'partial'
-                        ? colors.principal
-                        : colors.borderColor,
-                    borderWidth: cameraCaptureMode === 'partial' ? 2 : 1,
-                  },
-                ]}
+                onPress={() => toggleSection('themes')}
+                style={styles.accordionHeader}
+                accessibilityLabel="Expandir ou recolher Temas"
               >
-                <View style={styles.optionHeader}>
-                  <FontAwesome6
-                    name={cameraCaptureMode === 'partial' ? 'circle-dot' : 'circle'}
-                    size={16}
-                    color={
-                      cameraCaptureMode === 'partial'
-                        ? colors.principal
-                        : colors.textMuted
-                    }
-                  />
-                  <Text style={[styles.optionTitle, { color: colors.textoEscuro }]}>
-                    Captura Parcial (Foco na Etiqueta)
-                  </Text>
-                </View>
-                <Text style={[styles.optionDesc, { color: colors.textMuted }]}>
-                  Abre o recortador pré-posicionado na faixa central onde está a etiqueta de preço.
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => setCameraCaptureMode('full')}
-                style={[
-                  styles.optionCard,
-                  {
-                    backgroundColor: colors.card,
-                    borderColor:
-                      cameraCaptureMode === 'full'
-                        ? colors.principal
-                        : colors.borderColor,
-                    borderWidth: cameraCaptureMode === 'full' ? 2 : 1,
-                    marginBottom: 0,
-                  },
-                ]}
-              >
-                <View style={styles.optionHeader}>
-                  <FontAwesome6
-                    name={cameraCaptureMode === 'full' ? 'circle-dot' : 'circle'}
-                    size={16}
-                    color={
-                      cameraCaptureMode === 'full'
-                        ? colors.principal
-                        : colors.textMuted
-                    }
-                  />
-                  <Text style={[styles.optionTitle, { color: colors.textoEscuro }]}>
-                    Captura Completa
-                  </Text>
-                </View>
-                <Text style={[styles.optionDesc, { color: colors.textMuted }]}>
-                  Exibe o quadro inteiro da foto com opção de recortar se desejar.
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Backup de Dados (Exportar Seletivo / Importar com Detecção Automática) */}
-            <View
-              style={[
-                styles.sectionBox,
-                {
-                  backgroundColor: colors.surfaceMuted,
-                  borderColor: colors.borderColor,
-                },
-              ]}
-            >
-              <View style={styles.labelWithIcon}>
-                <FontAwesome6 name="database" size={15} color={colors.principal} />
-                <Text style={[styles.sectionTitle, { color: colors.textoEscuro }]}>
-                  Backup de Dados
-                </Text>
-              </View>
-              <Text
-                style={[
-                  styles.sectionDesc,
-                  { color: colors.textMuted, marginBottom: 12 },
-                ]}
-              >
-                Exporte tudo, apenas suas listas de compras ou apenas seus lembretes, e restaure arquivos JSON com detecção automática.
-              </Text>
-
-              {backupMessage ? (
                 <View
                   style={[
-                    styles.backupBanner,
+                    styles.accordionIconWrap,
                     {
-                      backgroundColor:
-                        backupMessage.type === 'error'
-                          ? colors.dangerSoft
-                          : colors.verdeSuave,
+                      backgroundColor: colors.verdeSuave,
+                      borderRadius: Math.min(12, radiusButton),
                     },
+                  ]}
+                >
+                  <FontAwesome6
+                    name="palette"
+                    size={16}
+                    color={colors.badgeText || colors.principal}
+                  />
+                </View>
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text
+                    style={[
+                      styles.accordionTitle,
+                      { color: colors.textoEscuro },
+                    ]}
+                  >
+                    Temas
+                  </Text>
+                  <Text
+                    style={[
+                      styles.accordionSubtitle,
+                      { color: colors.textMuted },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    Ativo: {theme?.name || 'Claro Padrão'}
+                  </Text>
+                </View>
+                <FontAwesome6
+                  name={isThemesExpanded ? 'chevron-up' : 'chevron-down'}
+                  size={14}
+                  color={colors.textMuted}
+                />
+              </TouchableOpacity>
+
+              {isThemesExpanded ? (
+                <View
+                  style={[
+                    styles.accordionBody,
+                    { borderTopColor: colors.borderColor },
+                  ]}
+                >
+                  {/* Vertical list of preset themes */}
+                  {THEME_LIST.map((t) => {
+                    const isActive = t.id === themeId;
+                    return (
+                      <TouchableOpacity
+                        key={t.id}
+                        activeOpacity={0.8}
+                        onPress={() => handleSelectPresetTheme(t.id)}
+                        style={[
+                          styles.themeRowCard,
+                          {
+                            backgroundColor: colors.card,
+                            borderColor: isActive
+                              ? colors.principal
+                              : colors.borderColor,
+                            borderWidth: isActive ? 2 : borderWidth,
+                            borderRadius: t.shape.radiusButton,
+                          },
+                        ]}
+                        accessibilityLabel={`Selecionar tema ${t.name}`}
+                      >
+                        <View
+                          style={[
+                            styles.themePreviewCircle,
+                            {
+                              borderColor: isActive
+                                ? colors.principal
+                                : colors.borderColor,
+                            },
+                          ]}
+                        >
+                          <View
+                            style={[
+                              styles.themePreviewHalf,
+                              { backgroundColor: t.previewBg },
+                            ]}
+                          />
+                          <View
+                            style={[
+                              styles.themePreviewHalf,
+                              { backgroundColor: t.previewPrimary },
+                            ]}
+                          />
+                        </View>
+
+                        <View style={{ flex: 1, marginRight: 8 }}>
+                          <Text
+                            style={[
+                              styles.themeRowName,
+                              { color: colors.textoEscuro },
+                            ]}
+                            numberOfLines={2}
+                          >
+                            {t.name}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.themeRowSub,
+                              { color: colors.textMuted },
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {t.subtitle}
+                          </Text>
+                        </View>
+
+                        {isActive ? (
+                          <FontAwesome6
+                            name="circle-check"
+                            size={17}
+                            color={colors.principal}
+                          />
+                        ) : (
+                          <FontAwesome6
+                            name="circle"
+                            size={16}
+                            color={colors.borderColor}
+                          />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+
+                  {/* Last Theme Option: Personalizado */}
+                  <View
+                    style={[
+                      styles.customThemeWrapper,
+                      {
+                        backgroundColor: colors.card,
+                        borderColor: isCustomActive
+                          ? colors.principal
+                          : colors.borderColor,
+                        borderWidth: isCustomActive ? 2 : borderWidth,
+                        borderRadius: customThemePreview.shape.radiusButton,
+                      },
+                    ]}
+                  >
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={handleSelectCustomTheme}
+                      style={styles.customThemeHeaderRow}
+                      accessibilityLabel="Selecionar tema Personalizado"
+                    >
+                      <View
+                        style={[
+                          styles.themePreviewCircle,
+                          {
+                            borderColor: isCustomActive
+                              ? colors.principal
+                              : colors.borderColor,
+                          },
+                        ]}
+                      >
+                        <View
+                          style={[
+                            styles.themePreviewHalf,
+                            { backgroundColor: customThemePreview.previewBg },
+                          ]}
+                        />
+                        <View
+                          style={[
+                            styles.themePreviewHalf,
+                            {
+                              backgroundColor:
+                                customThemePreview.previewPrimary,
+                            },
+                          ]}
+                        />
+                      </View>
+
+                      <View style={{ flex: 1, marginRight: 8 }}>
+                        <Text
+                          style={[
+                            styles.themeRowName,
+                            { color: colors.textoEscuro },
+                          ]}
+                          numberOfLines={2}
+                        >
+                          Personalizado
+                        </Text>
+                        <Text
+                          style={[
+                            styles.themeRowSub,
+                            { color: colors.textMuted },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {customThemePreview.subtitle}
+                        </Text>
+                      </View>
+
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={handleToggleCustomEditor}
+                        style={[
+                          styles.editCustomBtn,
+                          {
+                            backgroundColor: colors.verdeSuave,
+                            borderRadius: Math.min(8, radiusButton),
+                          },
+                        ]}
+                        accessibilityLabel="Editar tema personalizado"
+                      >
+                        <Text
+                          style={[
+                            styles.editCustomBtnText,
+                            { color: colors.badgeText || colors.principal },
+                          ]}
+                        >
+                          {showCustomEditor ? 'Ocultar' : 'Editar tema'}
+                        </Text>
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+
+                    {/* Inline Custom Theme Builder Panel */}
+                    {showCustomEditor ? (
+                      <View
+                        style={[
+                          styles.customBuilderPanel,
+                          { borderTopColor: colors.borderColor },
+                        ]}
+                      >
+                        {/* 1. Modo Base (Fundo) */}
+                        <Text
+                          style={[
+                            styles.builderLabel,
+                            { color: colors.textoEscuro },
+                          ]}
+                        >
+                          Modo Base (Fundo)
+                        </Text>
+                        <View style={styles.pillRow}>
+                          {CUSTOM_BASE_MODES.map((mode) => {
+                            const selected =
+                              customThemeConfig.baseMode === mode.id;
+                            return (
+                              <TouchableOpacity
+                                key={mode.id}
+                                activeOpacity={0.8}
+                                onPress={() =>
+                                  updateCustomThemeConfig({ baseMode: mode.id })
+                                }
+                                style={[
+                                  styles.builderPill,
+                                  {
+                                    backgroundColor: selected
+                                      ? colors.principal
+                                      : colors.surfaceMuted,
+                                    borderColor: selected
+                                      ? colors.principal
+                                      : colors.borderColor,
+                                    borderRadius: Math.min(10, radiusButton),
+                                  },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.builderPillText,
+                                    {
+                                      color: selected
+                                        ? colors.textoPrincipal
+                                        : colors.textoEscuro,
+                                    },
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {mode.label}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+
+                        {/* 2. Cor Principal (Destaque) */}
+                        <Text
+                          style={[
+                            styles.builderLabel,
+                            { color: colors.textoEscuro, marginTop: 12 },
+                          ]}
+                        >
+                          Cor Principal (Destaque)
+                        </Text>
+                        <View style={styles.swatchGrid}>
+                          {CUSTOM_ACCENT_PALETTE.map((swatch) => {
+                            const selected =
+                              String(
+                                customThemeConfig.primaryColor || ''
+                              ).toLowerCase() === swatch.hex.toLowerCase();
+                            return (
+                              <TouchableOpacity
+                                key={swatch.id}
+                                activeOpacity={0.85}
+                                onPress={() =>
+                                  updateCustomThemeConfig({
+                                    primaryColor: swatch.hex,
+                                  })
+                                }
+                                style={[
+                                  styles.swatchOuter,
+                                  {
+                                    borderColor: selected
+                                      ? colors.textoEscuro
+                                      : 'transparent',
+                                  },
+                                ]}
+                                accessibilityLabel={`Cor principal ${swatch.label}`}
+                              >
+                                <View
+                                  style={[
+                                    styles.swatchCircle,
+                                    { backgroundColor: swatch.hex },
+                                  ]}
+                                >
+                                  {selected ? (
+                                    <FontAwesome6
+                                      name="check"
+                                      size={12}
+                                      color="#FFFFFF"
+                                    />
+                                  ) : null}
+                                </View>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+
+                        {/* 3. Estilo das Bordas (Arredondamento) */}
+                        <Text
+                          style={[
+                            styles.builderLabel,
+                            { color: colors.textoEscuro, marginTop: 12 },
+                          ]}
+                        >
+                          Estilo das Bordas (Arredondamento)
+                        </Text>
+                        <View style={styles.pillRow}>
+                          {CUSTOM_BORDER_STYLES.map((st) => {
+                            const selected =
+                              customThemeConfig.borderStyle === st.id;
+                            return (
+                              <TouchableOpacity
+                                key={st.id}
+                                activeOpacity={0.8}
+                                onPress={() =>
+                                  updateCustomThemeConfig({
+                                    borderStyle: st.id,
+                                  })
+                                }
+                                style={[
+                                  styles.builderPill,
+                                  {
+                                    backgroundColor: selected
+                                      ? colors.principal
+                                      : colors.surfaceMuted,
+                                    borderColor: selected
+                                      ? colors.principal
+                                      : colors.borderColor,
+                                    borderRadius: Math.min(10, st.radiusButton),
+                                  },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.builderPillText,
+                                    {
+                                      color: selected
+                                        ? colors.textoPrincipal
+                                        : colors.textoEscuro,
+                                    },
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {st.label}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+
+                        {/* 4. Espessura do Contorno */}
+                        <Text
+                          style={[
+                            styles.builderLabel,
+                            { color: colors.textoEscuro, marginTop: 12 },
+                          ]}
+                        >
+                          Espessura do Contorno
+                        </Text>
+                        <View style={styles.pillRow}>
+                          {CUSTOM_BORDER_THICKNESS.map((th) => {
+                            const selected =
+                              customThemeConfig.borderThickness === th.id;
+                            return (
+                              <TouchableOpacity
+                                key={th.id}
+                                activeOpacity={0.8}
+                                onPress={() =>
+                                  updateCustomThemeConfig({
+                                    borderThickness: th.id,
+                                  })
+                                }
+                                style={[
+                                  styles.builderPill,
+                                  {
+                                    backgroundColor: selected
+                                      ? colors.principal
+                                      : colors.surfaceMuted,
+                                    borderColor: selected
+                                      ? colors.principal
+                                      : colors.borderColor,
+                                    borderWidth: th.borderWidth,
+                                    borderRadius: Math.min(10, radiusButton),
+                                  },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.builderPillText,
+                                    {
+                                      color: selected
+                                        ? colors.textoPrincipal
+                                        : colors.textoEscuro,
+                                    },
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {th.label}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    ) : null}
+                  </View>
+                </View>
+              ) : null}
+            </View>
+
+            {/* 2. ACCORDION: BACKUP DE DADOS */}
+            <View
+              style={[
+                styles.accordionCard,
+                {
+                  backgroundColor: colors.surfaceMuted,
+                  borderColor: isBackupExpanded
+                    ? colors.principal
+                    : colors.borderColor,
+                  borderRadius: radiusCard,
+                  borderWidth,
+                },
+              ]}
+            >
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => toggleSection('backup')}
+                style={styles.accordionHeader}
+                accessibilityLabel="Expandir ou recolher Backup de Dados"
+              >
+                <View
+                  style={[
+                    styles.accordionIconWrap,
+                    {
+                      backgroundColor: colors.verdeSuave,
+                      borderRadius: Math.min(12, radiusButton),
+                    },
+                  ]}
+                >
+                  <FontAwesome6
+                    name="database"
+                    size={15}
+                    color={colors.badgeText || colors.principal}
+                  />
+                </View>
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text
+                    style={[
+                      styles.accordionTitle,
+                      { color: colors.textoEscuro },
+                    ]}
+                  >
+                    Backup de Dados
+                  </Text>
+                  <Text
+                    style={[
+                      styles.accordionSubtitle,
+                      { color: colors.textMuted },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    Exportar e restaurar arquivos .json
+                  </Text>
+                </View>
+                <FontAwesome6
+                  name={isBackupExpanded ? 'chevron-up' : 'chevron-down'}
+                  size={14}
+                  color={colors.textMuted}
+                />
+              </TouchableOpacity>
+
+              {isBackupExpanded ? (
+                <View
+                  style={[
+                    styles.accordionBody,
+                    { borderTopColor: colors.borderColor },
                   ]}
                 >
                   <Text
                     style={[
-                      styles.backupBannerText,
+                      styles.sectionDesc,
+                      { color: colors.textMuted, marginBottom: 12 },
+                    ]}
+                  >
+                    Exporte tudo, apenas suas listas de compras ou apenas seus
+                    lembretes, e restaure arquivos JSON com detecção automática.
+                  </Text>
+
+                  {backupMessage ? (
+                    <View
+                      style={[
+                        styles.backupBanner,
+                        {
+                          backgroundColor:
+                            backupMessage.type === 'error'
+                              ? colors.dangerSoft
+                              : colors.verdeSuave,
+                          borderRadius: Math.min(10, radiusButton),
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.backupBannerText,
+                          {
+                            color:
+                              backupMessage.type === 'error'
+                                ? colors.logoutRed
+                                : colors.badgeText || colors.principal,
+                          },
+                        ]}
+                      >
+                        {backupMessage.text}
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    disabled={isBackupBusy}
+                    onPress={() => setShowExportSelector(true)}
+                    style={[
+                      styles.backupBtn,
                       {
-                        color:
-                          backupMessage.type === 'error'
-                            ? colors.logoutRed
-                            : colors.principal,
+                        backgroundColor: colors.principal,
+                        borderRadius: radiusButton,
+                        marginBottom: 8,
+                        opacity: isBackupBusy ? 0.65 : 1,
                       },
                     ]}
                   >
-                    {backupMessage.text}
-                  </Text>
+                    {isBackupBusy ? (
+                      <ActivityIndicator
+                        size="small"
+                        color={colors.textoPrincipal}
+                      />
+                    ) : (
+                      <>
+                        <FontAwesome6
+                          name="file-export"
+                          size={14}
+                          color={colors.textoPrincipal}
+                        />
+                        <Text
+                          style={[
+                            styles.backupBtnPrimaryText,
+                            { color: colors.textoPrincipal },
+                          ]}
+                        >
+                          Exportar Dados (Backup)
+                        </Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    disabled={isBackupBusy}
+                    onPress={handlePickBackupFile}
+                    style={[
+                      styles.backupBtn,
+                      {
+                        backgroundColor: colors.card,
+                        borderColor: colors.principal,
+                        borderWidth: 1.5,
+                        borderRadius: radiusButton,
+                        opacity: isBackupBusy ? 0.65 : 1,
+                      },
+                    ]}
+                  >
+                    <FontAwesome6
+                      name="file-import"
+                      size={14}
+                      color={colors.principal}
+                    />
+                    <Text
+                      style={[
+                        styles.backupBtnSecondaryText,
+                        { color: colors.principal },
+                      ]}
+                    >
+                      Importar Backup (Restaurar)
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               ) : null}
+            </View>
 
+            {/* 3. ACCORDION: SUPORTE E INFORMAÇÕES */}
+            <View
+              style={[
+                styles.accordionCard,
+                {
+                  backgroundColor: colors.surfaceMuted,
+                  borderColor: isSupportExpanded
+                    ? colors.principal
+                    : colors.borderColor,
+                  borderRadius: radiusCard,
+                  borderWidth,
+                  marginBottom: 4,
+                },
+              ]}
+            >
               <TouchableOpacity
                 activeOpacity={0.8}
-                disabled={isBackupBusy}
-                onPress={() => setShowExportSelector(true)}
-                style={[
-                  styles.backupBtn,
-                  {
-                    backgroundColor: colors.principal,
-                    marginBottom: 8,
-                    opacity: isBackupBusy ? 0.65 : 1,
-                  },
-                ]}
+                onPress={() => toggleSection('support')}
+                style={styles.accordionHeader}
+                accessibilityLabel="Expandir ou recolher Suporte e Informações"
               >
-                {isBackupBusy ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <>
-                    <FontAwesome6 name="file-export" size={14} color="#FFFFFF" />
-                    <Text style={styles.backupBtnPrimaryText}>
-                      Exportar Dados (Backup)
-                    </Text>
-                  </>
-                )}
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                activeOpacity={0.8}
-                disabled={isBackupBusy}
-                onPress={handlePickBackupFile}
-                style={[
-                  styles.backupBtn,
-                  {
-                    backgroundColor: colors.card,
-                    borderColor: colors.principal,
-                    borderWidth: 1.5,
-                    opacity: isBackupBusy ? 0.65 : 1,
-                  },
-                ]}
-              >
-                <FontAwesome6
-                  name="file-import"
-                  size={14}
-                  color={colors.principal}
-                />
-                <Text
+                <View
                   style={[
-                    styles.backupBtnSecondaryText,
-                    { color: colors.principal },
+                    styles.accordionIconWrap,
+                    {
+                      backgroundColor: colors.verdeSuave,
+                      borderRadius: Math.min(12, radiusButton),
+                    },
                   ]}
                 >
-                  Importar Dados (Restaurar)
-                </Text>
+                  <FontAwesome6
+                    name="circle-info"
+                    size={16}
+                    color={colors.badgeText || colors.principal}
+                  />
+                </View>
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text
+                    style={[
+                      styles.accordionTitle,
+                      { color: colors.textoEscuro },
+                    ]}
+                  >
+                    Suporte e Informações
+                  </Text>
+                  <Text
+                    style={[
+                      styles.accordionSubtitle,
+                      { color: colors.textMuted },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    Ajuda e informações sobre o app
+                  </Text>
+                </View>
+                <FontAwesome6
+                  name={isSupportExpanded ? 'chevron-up' : 'chevron-down'}
+                  size={14}
+                  color={colors.textMuted}
+                />
               </TouchableOpacity>
+
+              {isSupportExpanded ? (
+                <View
+                  style={[
+                    styles.accordionBody,
+                    { borderTopColor: colors.borderColor },
+                  ]}
+                >
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      closeSettings();
+                      onOpenHelp?.();
+                    }}
+                    style={[
+                      styles.navItemBtn,
+                      {
+                        backgroundColor: colors.card,
+                        borderColor: colors.borderColor,
+                        borderWidth,
+                        borderRadius: radiusButton,
+                        marginBottom: 8,
+                      },
+                    ]}
+                    accessibilityLabel="Abrir guia de Ajuda"
+                  >
+                    <View
+                      style={[
+                        styles.navItemIconWrap,
+                        {
+                          backgroundColor: colors.verdeSuave,
+                          borderRadius: Math.min(11, radiusButton),
+                        },
+                      ]}
+                    >
+                      <FontAwesome6
+                        name="circle-question"
+                        size={16}
+                        color={colors.badgeText || colors.principal}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={[
+                          styles.navItemTitle,
+                          { color: colors.textoEscuro },
+                        ]}
+                      >
+                        Ajuda
+                      </Text>
+                      <Text
+                        style={[
+                          styles.navItemDesc,
+                          { color: colors.textMuted },
+                        ]}
+                      >
+                        Guia completo passo a passo de como usar o app.
+                      </Text>
+                    </View>
+                    <FontAwesome6
+                      name="chevron-right"
+                      size={13}
+                      color={colors.textMuted}
+                      style={{ marginLeft: 8 }}
+                    />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      closeSettings();
+                      onOpenAbout?.();
+                    }}
+                    style={[
+                      styles.navItemBtn,
+                      {
+                        backgroundColor: colors.card,
+                        borderColor: colors.borderColor,
+                        borderWidth,
+                        borderRadius: radiusButton,
+                      },
+                    ]}
+                    accessibilityLabel="Abrir tela Sobre o aplicativo"
+                  >
+                    <View
+                      style={[
+                        styles.navItemIconWrap,
+                        {
+                          backgroundColor: colors.verdeSuave,
+                          borderRadius: Math.min(11, radiusButton),
+                        },
+                      ]}
+                    >
+                      <FontAwesome6
+                        name="shield-halved"
+                        size={16}
+                        color={colors.badgeText || colors.principal}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={[
+                          styles.navItemTitle,
+                          { color: colors.textoEscuro },
+                        ]}
+                      >
+                        Sobre
+                      </Text>
+                      <Text
+                        style={[
+                          styles.navItemDesc,
+                          { color: colors.textMuted },
+                        ]}
+                      >
+                        Versão, privacidade 100% offline e GitHub oficial.
+                      </Text>
+                    </View>
+                    <FontAwesome6
+                      name="chevron-right"
+                      size={13}
+                      color={colors.textMuted}
+                      style={{ marginLeft: 8 }}
+                    />
+                  </TouchableOpacity>
+                </View>
+              ) : null}
             </View>
           </ScrollView>
 
           <TouchableOpacity
-            style={[styles.doneButton, { backgroundColor: colors.principal }]}
+            style={[
+              styles.doneButton,
+              {
+                backgroundColor: colors.principal,
+                borderRadius: radiusButton,
+              },
+            ]}
             onPress={closeSettings}
           >
-            <Text style={[styles.doneButtonText, { color: colors.textoPrincipal }]}>
+            <Text
+              style={[
+                styles.doneButtonText,
+                { color: colors.textoPrincipal },
+              ]}
+            >
               Concluir
             </Text>
           </TouchableOpacity>
@@ -585,6 +1268,8 @@ export default function SettingsModal() {
               {
                 backgroundColor: colors.card,
                 borderColor: colors.borderColor,
+                borderRadius: Math.min(22, radiusCard + 4),
+                borderWidth,
               },
             ]}
           >
@@ -595,15 +1280,30 @@ export default function SettingsModal() {
                   size={17}
                   color={colors.principal}
                 />
-                <Text style={[styles.exportSelectorTitle, { color: colors.textoEscuro }]}>
+                <Text
+                  style={[
+                    styles.exportSelectorTitle,
+                    { color: colors.textoEscuro },
+                  ]}
+                >
                   O que deseja exportar?
                 </Text>
               </View>
               <TouchableOpacity
                 onPress={() => setShowExportSelector(false)}
-                style={[styles.closeIconBtn, { backgroundColor: colors.surfaceMuted }]}
+                style={[
+                  styles.closeIconBtn,
+                  {
+                    backgroundColor: colors.surfaceMuted,
+                    borderRadius: radiusButton,
+                  },
+                ]}
               >
-                <FontAwesome6 name="xmark" size={15} color={colors.textoEscuro} />
+                <FontAwesome6
+                  name="xmark"
+                  size={15}
+                  color={colors.textoEscuro}
+                />
               </TouchableOpacity>
             </View>
 
@@ -626,19 +1326,24 @@ export default function SettingsModal() {
                   {
                     backgroundColor: colors.surfaceMuted,
                     borderColor: colors.borderColor,
+                    borderRadius: radiusCard,
+                    borderWidth,
                   },
                 ]}
               >
                 <View
                   style={[
                     styles.exportOptionIconWrap,
-                    { backgroundColor: colors.verdeSuave },
+                    {
+                      backgroundColor: colors.verdeSuave,
+                      borderRadius: Math.min(12, radiusButton),
+                    },
                   ]}
                 >
                   <FontAwesome6
                     name={opt.icon}
                     size={16}
-                    color={colors.principal}
+                    color={colors.badgeText || colors.principal}
                   />
                 </View>
                 <View style={{ flex: 1 }}>
@@ -651,7 +1356,10 @@ export default function SettingsModal() {
                     {opt.title}
                   </Text>
                   <Text
-                    style={[styles.exportOptionDesc, { color: colors.textMuted }]}
+                    style={[
+                      styles.exportOptionDesc,
+                      { color: colors.textMuted },
+                    ]}
                   >
                     {opt.desc}
                   </Text>
@@ -672,6 +1380,8 @@ export default function SettingsModal() {
                 {
                   backgroundColor: colors.surfaceMuted,
                   borderColor: colors.borderColor,
+                  borderRadius: radiusButton,
+                  borderWidth,
                 },
               ]}
             >
@@ -713,7 +1423,7 @@ const styles = StyleSheet.create({
     maxWidth: 460,
     maxHeight: '90%',
     borderRadius: 20,
-    padding: 20,
+    padding: 18,
     borderWidth: 1,
   },
   exportSelectorCard: {
@@ -767,13 +1477,13 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   scrollArea: {
-    maxHeight: 460,
+    maxHeight: 500,
   },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 18,
+    marginBottom: 16,
   },
   titleWrap: {
     flexDirection: 'row',
@@ -791,72 +1501,153 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  sectionBox: {
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 14,
-    borderWidth: 1,
+  accordionCard: {
+    marginBottom: 12,
+    overflow: 'hidden',
   },
-  switchRow: {
+  accordionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 13,
   },
-  labelWithIcon: {
-    flexDirection: 'row',
+  accordionIconWrap: {
+    width: 38,
+    height: 38,
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 4,
+    marginRight: 12,
   },
-  sectionTitle: {
-    fontSize: 16,
+  accordionTitle: {
+    fontSize: 15.5,
     fontWeight: 'bold',
-    marginLeft: 8,
+    marginBottom: 2,
+  },
+  accordionSubtitle: {
+    fontSize: 12.5,
+  },
+  accordionBody: {
+    borderTopWidth: 1,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 12,
+  },
+  themeRowCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    marginBottom: 8,
+  },
+  themePreviewCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    overflow: 'hidden',
+    flexDirection: 'row',
+    marginRight: 11,
+    flexShrink: 0,
+  },
+  themePreviewHalf: {
+    flex: 1,
+    height: '100%',
+  },
+  themeRowName: {
+    fontSize: 14.5,
+    fontWeight: '700',
+    marginBottom: 1,
+  },
+  themeRowSub: {
+    fontSize: 11.5,
+  },
+  customThemeWrapper: {
+    overflow: 'hidden',
+  },
+  customThemeHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+  },
+  editCustomBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  editCustomBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  customBuilderPanel: {
+    borderTopWidth: 1,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 14,
+  },
+  builderLabel: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  pillRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  builderPill: {
+    flexGrow: 1,
+    minWidth: '28%',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  builderPillText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+  swatchGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  swatchOuter: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  swatchCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   sectionDesc: {
-    fontSize: 13,
+    fontSize: 12.5,
     lineHeight: 18,
   },
-  optionCard: {
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 10,
-  },
-  optionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  optionTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    marginLeft: 8,
-  },
-  optionDesc: {
-    fontSize: 12,
-    lineHeight: 17,
-    marginLeft: 24,
-  },
   backupBanner: {
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    padding: 10,
     marginBottom: 10,
   },
   backupBannerText: {
-    fontSize: 12,
-    fontWeight: '700',
-    lineHeight: 16,
+    fontSize: 12.5,
+    fontWeight: '600',
+    lineHeight: 17,
   },
   backupBtn: {
     width: '100%',
     height: 44,
-    borderRadius: 11,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
   backupBtnPrimaryText: {
-    color: '#FFFFFF',
     fontSize: 14,
     fontWeight: 'bold',
     marginLeft: 8,
@@ -866,16 +1657,36 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginLeft: 8,
   },
-  doneButton: {
-    width: '100%',
-    height: 48,
-    borderRadius: 12,
+  navItemBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+  },
+  navItemIconWrap: {
+    width: 38,
+    height: 38,
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 4,
+    marginRight: 11,
+  },
+  navItemTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  navItemDesc: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  doneButton: {
+    width: '100%',
+    height: 46,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 14,
   },
   doneButtonText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: 'bold',
   },
 });

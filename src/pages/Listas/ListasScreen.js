@@ -30,7 +30,8 @@ const STATUS_FILTERS = [
 ];
 
 export default function ListasScreen({ navigation }) {
-  const { colors, dataVersion } = useAppSettings();
+  const { colors, radiusCard, radiusButton, borderWidth, dataVersion } =
+    useAppSettings();
   const [lists, setLists] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'open' | 'completed'
@@ -207,7 +208,8 @@ export default function ListasScreen({ navigation }) {
               : isCompleted
                 ? colors.verdePrincipal
                 : colors.borderColor,
-            borderWidth: isSelected ? 2 : 1,
+            borderWidth: isSelected ? 2 : borderWidth,
+            borderRadius: radiusCard,
           },
         ]}
         activeOpacity={0.85}

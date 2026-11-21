@@ -22,6 +22,7 @@ import {
   NavigationContainer,
   DefaultTheme,
   DarkTheme,
+  useNavigationContainerRef,
 } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -33,16 +34,23 @@ import {
 } from './src/context/AppSettingsContext';
 import SettingsModal from './components/modals/ShoppingModals/SettingsModal';
 import ConfirmModal from './components/modals/ShoppingModals/ConfirmModal';
+import ErrorBoundary from './components/common/ErrorBoundary';
 import {
   validateBackupPayload,
   importBackupPayload,
   formatDateBR,
+  loadOnboardingCompleted,
+  saveOnboardingCompleted,
 } from './src/storage/shoppingStorage';
 
 import ListasScreen from './src/pages/Listas/ListasScreen';
 import ListaDetalhesScreen from './src/pages/Listas/ListaDetalhesScreen';
 import LembretesScreen from './src/pages/Lembretes/LembretesScreen';
+import LembreteDetalhesScreen from './src/pages/Lembretes/LembreteDetalhesScreen';
 import RelatorioScreen from './src/pages/RelatorioScreen';
+import OnboardingScreen from './src/pages/Onboarding/OnboardingScreen';
+import AjudaScreen from './src/pages/Settings/AjudaScreen';
+import SobreScreen from './src/pages/Settings/SobreScreen';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -206,9 +214,49 @@ async function readExternalJsonUri(uri) {
 
 function RootNavigator() {
   const { darkMode, colors, notifyDataRestored } = useAppSettings();
+  const navigationRef = useNavigationContainerRef();
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
+  const [onboardingCompleted, setOnboardingCompleted] = useState(true);
   const [externalBackupPending, setExternalBackupPending] = useState(null);
   const [externalFeedbackModal, setExternalFeedbackModal] = useState(null);
   const lastHandledUrlRef = useRef('');
+
+  useEffect(() => {
+    let mounted = true;
+    loadOnboardingCompleted()
+      .then((done) => {
+        if (mounted) {
+          setOnboardingCompleted(Boolean(done));
+          setOnboardingChecked(true);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setOnboardingCompleted(true);
+          setOnboardingChecked(true);
+        }
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const handleCompleteOnboarding = useCallback(async () => {
+    await saveOnboardingCompleted(true);
+    setOnboardingCompleted(true);
+  }, []);
+
+  const handleOpenHelp = useCallback(() => {
+    if (navigationRef.isReady()) {
+      navigationRef.navigate('Ajuda');
+    }
+  }, [navigationRef]);
+
+  const handleOpenAbout = useCallback(() => {
+    if (navigationRef.isReady()) {
+      navigationRef.navigate('Sobre');
+    }
+  }, [navigationRef]);
 
   const handleIncomingExternalUrl = useCallback(async (url) => {
     if (!url || typeof url !== 'string') return;
@@ -375,10 +423,37 @@ function RootNavigator() {
     },
   };
 
+  if (!onboardingChecked) {
+    return (
+      <>
+        <StatusBar style="light" />
+        <View
+          style={{
+            flex: 1,
+            justifyContent: 'center',
+            alignItems: 'center',
+            backgroundColor: colors.background,
+          }}
+        >
+          <ActivityIndicator size="large" color={colors.principal} />
+        </View>
+      </>
+    );
+  }
+
+  if (!onboardingCompleted) {
+    return (
+      <>
+        <StatusBar style="light" />
+        <OnboardingScreen onComplete={handleCompleteOnboarding} />
+      </>
+    );
+  }
+
   return (
     <>
       <StatusBar style="light" />
-      <NavigationContainer theme={navTheme}>
+      <NavigationContainer ref={navigationRef} theme={navTheme}>
         <Stack.Navigator
           initialRouteName="HomeTabs"
           screenOptions={{
@@ -403,9 +478,33 @@ function RootNavigator() {
             component={ListaDetalhesScreen}
             options={{ title: 'Lista de Compras' }}
           />
+          <Stack.Screen
+            name="LembreteDetalhes"
+            component={LembreteDetalhesScreen}
+            options={{ title: 'Lista de Lembretes' }}
+          />
+          <Stack.Screen
+            name="Ajuda"
+            component={AjudaScreen}
+            options={{
+              title: 'Ajuda',
+              headerRight: () => null,
+            }}
+          />
+          <Stack.Screen
+            name="Sobre"
+            component={SobreScreen}
+            options={{
+              title: 'Sobre',
+              headerRight: () => null,
+            }}
+          />
         </Stack.Navigator>
       </NavigationContainer>
-      <SettingsModal />
+      <SettingsModal
+        onOpenHelp={handleOpenHelp}
+        onOpenAbout={handleOpenAbout}
+      />
 
       <ConfirmModal
         visible={Boolean(externalBackupPending)}
@@ -562,9 +661,11 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <AppSettingsProvider>
-        <RootNavigator />
-      </AppSettingsProvider>
+      <ErrorBoundary>
+        <AppSettingsProvider>
+          <RootNavigator />
+        </AppSettingsProvider>
+      </ErrorBoundary>
     </SafeAreaProvider>
   );
 }

@@ -587,7 +587,7 @@ export default function CameraCaptureModal({
   onClose,
   onConfirmImage,
 }) {
-  const { colors, cameraCaptureMode } = useAppSettings();
+  const { colors } = useAppSettings();
   const insets = useSafeAreaInsets();
 
   // Safe top padding so Android status bar never clips the header
@@ -612,13 +612,9 @@ export default function CameraCaptureModal({
     (photo) => {
       setCapturedPhoto(photo);
       setErrorMsg('');
-      if (cameraCaptureMode === 'partial') {
-        setStage('crop');
-      } else {
-        setStage('preview');
-      }
+      setStage('crop');
     },
-    [cameraCaptureMode]
+    []
   );
 
   useEffect(() => {

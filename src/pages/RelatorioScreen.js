@@ -202,7 +202,8 @@ function CategoryPieChart({ slices, total, colors }) {
 }
 
 export default function RelatorioScreen({ navigation }) {
-  const { colors, dataVersion } = useAppSettings();
+  const { colors, radiusCard, radiusButton, borderWidth, dataVersion } =
+    useAppSettings();
   const [lists, setLists] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -453,6 +454,8 @@ export default function RelatorioScreen({ navigation }) {
             {
               backgroundColor: colors.card,
               borderColor: colors.borderColor,
+              borderRadius: radiusCard,
+              borderWidth,
             },
           ]}
         >
