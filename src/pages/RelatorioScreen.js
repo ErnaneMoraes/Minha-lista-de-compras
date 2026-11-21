@@ -442,10 +442,6 @@ const localStyles = StyleSheet.create({
     fontSize: 17,
     fontWeight: 'bold',
   },
-  linkText: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
   mutedLabel: {
     fontSize: 12,
     marginBottom: 2,

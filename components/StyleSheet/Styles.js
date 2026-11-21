@@ -11,36 +11,6 @@ const styles = StyleSheet.create({
     maxWidth: 680,
     alignSelf: 'center',
   },
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    backgroundColor: AppColors.background,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-    paddingTop: 10,
-  },
-  logo: {
-    width: 120,
-    height: 120,
-    resizeMode: 'contain',
-    marginBottom: 12,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: AppColors.textoEscuro,
-    marginBottom: 16,
-  },
-  message: {
-    fontSize: 15,
-    textAlign: 'center',
-    color: AppColors.textMuted,
-    marginBottom: 20,
-  },
-  inputContainer: {
-    width: '100%',
-    marginBottom: 16,
-  },
   input: {
     width: '100%',
     height: 48,
@@ -52,13 +22,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: AppColors.textoEscuro,
   },
-  logoutContainer: {
-    width: '100%',
-  },
 });
-
-export const customHeaderStyle = {
-  backgroundColor: AppColors.primary,
-};
 
 export default styles;

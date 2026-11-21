@@ -5,7 +5,6 @@ const STORAGE_KEYS = {
   HISTORY: '@mlc_offline:history',
   REMINDERS: '@mlc_offline:reminders',
   SETTINGS: '@mlc_offline:settings',
-  PANTRY: '@mlc_offline:pantry',
 };
 
 export const DEFAULT_SETTINGS = {
@@ -74,43 +73,6 @@ export function formatListDateLabel(list) {
   return list?.dataEditada
     ? `Referência: ${formatted}`
     : `Criada em ${formatted}`;
-}
-
-export function maskDateBRInput(rawText) {
-  const digits = String(rawText || '').replace(/\D/g, '').slice(0, 8);
-  if (digits.length <= 2) return digits;
-  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
-  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 8)}`;
-}
-
-export function parseDateBRToISO(dateBR, fallbackIso = null) {
-  const trimmed = String(dateBR || '').trim();
-  const match = trimmed.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (!match) return null;
-  const day = parseInt(match[1], 10);
-  const month = parseInt(match[2], 10);
-  const year = parseInt(match[3], 10);
-  if (month < 1 || month > 12 || day < 1 || day > 31 || year < 1970 || year > 2100) {
-    return null;
-  }
-  const ref = fallbackIso ? new Date(fallbackIso) : new Date();
-  const safeRef = Number.isNaN(ref.getTime()) ? new Date() : ref;
-  const constructed = new Date(
-    year,
-    month - 1,
-    day,
-    safeRef.getHours(),
-    safeRef.getMinutes(),
-    safeRef.getSeconds()
-  );
-  if (
-    constructed.getFullYear() !== year ||
-    constructed.getMonth() !== month - 1 ||
-    constructed.getDate() !== day
-  ) {
-    return null;
-  }
-  return constructed.toISOString();
 }
 
 export function formatMonthYearBR(isoString) {
@@ -342,17 +304,6 @@ export async function updateListDetails(listId, updates) {
   return updated.find((list) => list.id === listId) || null;
 }
 
-export async function renameList(listId, nameOrPayload, maybeBudget) {
-  if (typeof nameOrPayload === 'object' && nameOrPayload !== null) {
-    return updateListDetails(listId, nameOrPayload);
-  }
-  const updates = { name: nameOrPayload };
-  if (maybeBudget !== undefined) {
-    updates.budget = maybeBudget;
-  }
-  return updateListDetails(listId, updates);
-}
-
 export async function finalizeList(listId) {
   const lists = await loadLists();
   const target = lists.find((l) => l.id === listId);
@@ -524,37 +475,6 @@ export async function updateItemInList(listId, itemId, updates) {
   return updated.find((list) => list.id === listId) || null;
 }
 
-export async function toggleItemChecked(listId, itemId) {
-  const lists = await loadLists();
-  const updated = lists.map((list) => {
-    if (list.id !== listId) return list;
-    return {
-      ...list,
-      items: list.items.map((item) =>
-        item.id === itemId ? { ...item, checked: !item.checked } : item
-      ),
-    };
-  });
-  await saveLists(updated);
-  return updated.find((list) => list.id === listId) || null;
-}
-
-export async function setItemQuantity(listId, itemId, nextQty) {
-  const lists = await loadLists();
-  const safeQty = Math.max(0, Math.round((Number(nextQty) || 0) * 100) / 100);
-  const updated = lists.map((list) => {
-    if (list.id !== listId) return list;
-    return {
-      ...list,
-      items: list.items.map((item) =>
-        item.id === itemId ? { ...item, quantity: safeQty } : item
-      ),
-    };
-  });
-  await saveLists(updated);
-  return updated.find((list) => list.id === listId) || null;
-}
-
 export async function updateItemQuantity(listId, itemId, delta) {
   const lists = await loadLists();
   const updated = lists.map((list) => {
@@ -585,19 +505,6 @@ export async function deleteItemFromList(listId, itemId) {
   return updated.find((list) => list.id === listId) || null;
 }
 
-export async function clearCheckedItems(listId) {
-  const lists = await loadLists();
-  const updated = lists.map((list) => {
-    if (list.id !== listId) return list;
-    return {
-      ...list,
-      items: list.items.filter((item) => !item.checked),
-    };
-  });
-  await saveLists(updated);
-  return updated.find((list) => list.id === listId) || null;
-}
-
 export async function loadHistory() {
   const raw = await AsyncStorage.getItem(STORAGE_KEYS.HISTORY);
   if (raw === null) {
@@ -609,11 +516,6 @@ export async function loadHistory() {
   } catch {
     return [];
   }
-}
-
-export async function clearHistory() {
-  await AsyncStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify([]));
-  return [];
 }
 
 // ==========================================
@@ -659,15 +561,6 @@ export async function setReminderChecked(reminderId, checked) {
   const reminders = await loadReminders();
   const updated = reminders.map((item) =>
     item.id === reminderId ? { ...item, checked: Boolean(checked) } : item
-  );
-  await saveReminders(updated);
-  return updated;
-}
-
-export async function toggleReminderChecked(reminderId) {
-  const reminders = await loadReminders();
-  const updated = reminders.map((item) =>
-    item.id === reminderId ? { ...item, checked: !item.checked } : item
   );
   await saveReminders(updated);
   return updated;

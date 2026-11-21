@@ -11,20 +11,10 @@ const Button = StyleSheet.create({
     alignItems: 'center',
     marginTop: 10,
   },
-  buttonContainer: {
-    width: '100%',
-    marginBottom: 20,
-  },
-  buttonDisabled: {
-    backgroundColor: AppColors.disabledBackground,
-  },
   buttonText: {
     color: AppColors.textoPrincipal,
     fontSize: 16,
     fontWeight: 'bold',
-  },
-  logoutButton: {
-    backgroundColor: AppColors.logoutRed,
   },
 });
 

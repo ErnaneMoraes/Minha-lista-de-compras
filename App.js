@@ -14,12 +14,7 @@ import {
 } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import {
-  FontAwesome6,
-  FontAwesome,
-  Ionicons,
-  MaterialIcons,
-} from '@expo/vector-icons';
+import { FontAwesome6 } from '@expo/vector-icons';
 import { AppColors } from './components/StyleSheet/Colors';
 import {
   AppSettingsProvider,
@@ -171,9 +166,6 @@ function RootNavigator() {
 export default function App() {
   const [fontsLoaded, fontError] = useFonts({
     ...FontAwesome6.font,
-    ...FontAwesome.font,
-    ...Ionicons.font,
-    ...MaterialIcons.font,
   });
 
   if (!fontsLoaded && !fontError) {

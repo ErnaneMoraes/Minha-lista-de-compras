@@ -17,9 +17,7 @@ import ListFormModal from '../../../components/modals/ShoppingModals/ListFormMod
 import ConfirmModal from '../../../components/modals/ShoppingModals/ConfirmModal';
 import OcrProgressModal from '../../../components/modals/ShoppingModals/OcrProgressModal';
 import * as ImagePicker from 'expo-image-picker';
-import CameraCaptureModal, {
-  normalizeAndCropImage,
-} from '../../../components/modals/ShoppingModals/CameraCaptureModal';
+import CameraCaptureModal from '../../../components/modals/ShoppingModals/CameraCaptureModal';
 import NativeOcrBridge from '../../../components/common/NativeOcrBridge';
 import { recognizeShelfLabel } from '../../services/labelOcr';
 import { useAppSettings } from '../../context/AppSettingsContext';
@@ -41,7 +39,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
   const listId = route?.params?.listId;
   const insets = useSafeAreaInsets();
   const bottomPad = Math.max(7, insets.bottom);
-  const { colors, openSettings, cameraSource, cameraCaptureMode, dataVersion } =
+  const { colors, openSettings, cameraCaptureMode, dataVersion } =
     useAppSettings();
 
   const [list, setList] = useState(null);
@@ -271,40 +269,52 @@ export default function ListaDetalhesScreen({ route, navigation }) {
       return;
     }
 
-    if (cameraSource === 'native') {
-      try {
-        const perm = await ImagePicker.requestCameraPermissionsAsync();
-        if (!perm.granted) {
-          setBanner({
-            type: 'error',
-            text: 'Permissão da câmera negada nas configurações do aparelho.',
-          });
-          return;
-        }
-
-        const result = await ImagePicker.launchCameraAsync({
-          mediaTypes: ['images'],
-          allowsEditing: false,
-          quality: 1,
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        setBanner({
+          type: 'error',
+          text: 'Permissão da câmera negada nas configurações do aparelho.',
         });
-
-        if (result.canceled || !result.assets || !result.assets[0]) {
-          return;
-        }
-
-        const processed = await normalizeAndCropImage(
-          result.assets[0],
-          cameraCaptureMode === 'partial'
-        );
-
-        setCameraInitialPhoto(processed);
-        setIsCameraModalVisible(true);
-      } catch (err) {
-        console.warn('Erro ao abrir câmera nativa do celular:', err);
-        setCameraInitialPhoto(null);
-        setIsCameraModalVisible(true);
+        return;
       }
-    } else {
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 1,
+      });
+
+      if (result.canceled || !result.assets || !result.assets[0]) {
+        return;
+      }
+
+      const asset = result.assets[0];
+      let photoW = Number(asset.width) || 0;
+      let photoH = Number(asset.height) || 0;
+
+      if (!photoW || !photoH) {
+        await new Promise((resolve) => {
+          Image.getSize(
+            asset.uri,
+            (w, h) => {
+              photoW = w;
+              photoH = h;
+              resolve();
+            },
+            () => resolve()
+          );
+        });
+      }
+
+      setCameraInitialPhoto({
+        uri: asset.uri,
+        width: photoW || 1200,
+        height: photoH || 1600,
+      });
+      setIsCameraModalVisible(true);
+    } catch (err) {
+      console.warn('Erro ao abrir câmera nativa do celular:', err);
       setCameraInitialPhoto(null);
       setIsCameraModalVisible(true);
     }
@@ -988,26 +998,6 @@ const localStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
     marginLeft: 5,
-  },
-  metaIndicatorBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderRadius: 11,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginTop: 12,
-    marginBottom: 10,
-  },
-  metaIndicatorItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  metaIndicatorText: {
-    fontSize: 12,
-    fontWeight: '700',
-    marginLeft: 6,
   },
   lockedBanner: {
     flexDirection: 'row',

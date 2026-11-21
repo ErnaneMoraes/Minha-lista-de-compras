@@ -28,12 +28,10 @@ export default function SettingsModal() {
   const {
     darkMode,
     cameraCaptureMode,
-    cameraSource,
     colors,
     isSettingsVisible,
     toggleDarkMode,
     setCameraCaptureMode,
-    setCameraSource,
     notifyDataRestored,
     closeSettings,
   } = useAppSettings();
@@ -277,96 +275,6 @@ export default function SettingsModal() {
                   thumbColor="#FFFFFF"
                 />
               </View>
-            </View>
-
-            {/* Origem da Câmera (Nativa vs Integrada) */}
-            <View
-              style={[
-                styles.sectionBox,
-                {
-                  backgroundColor: colors.surfaceMuted,
-                  borderColor: colors.borderColor,
-                },
-              ]}
-            >
-              <View style={styles.labelWithIcon}>
-                <FontAwesome6 name="camera" size={15} color={colors.principal} />
-                <Text style={[styles.sectionTitle, { color: colors.textoEscuro }]}>
-                  Origem da Câmera
-                </Text>
-              </View>
-              <Text style={[styles.sectionDesc, { color: colors.textMuted, marginBottom: 12 }]}>
-                Selecione o motor de captura de imagem:
-              </Text>
-
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => setCameraSource('native')}
-                style={[
-                  styles.optionCard,
-                  {
-                    backgroundColor: colors.card,
-                    borderColor:
-                      cameraSource === 'native'
-                        ? colors.principal
-                        : colors.borderColor,
-                    borderWidth: cameraSource === 'native' ? 2 : 1,
-                  },
-                ]}
-              >
-                <View style={styles.optionHeader}>
-                  <FontAwesome6
-                    name={cameraSource === 'native' ? 'circle-dot' : 'circle'}
-                    size={16}
-                    color={
-                      cameraSource === 'native'
-                        ? colors.principal
-                        : colors.textMuted
-                    }
-                  />
-                  <Text style={[styles.optionTitle, { color: colors.textoEscuro }]}>
-                    Câmera do Celular (Recomendado)
-                  </Text>
-                </View>
-                <Text style={[styles.optionDesc, { color: colors.textMuted }]}>
-                  Abre a câmera oficial do smartphone com foco macro e flash. 100% livre de tela preta no Expo Go e APKs.
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => setCameraSource('inapp')}
-                style={[
-                  styles.optionCard,
-                  {
-                    backgroundColor: colors.card,
-                    borderColor:
-                      cameraSource === 'inapp'
-                        ? colors.principal
-                        : colors.borderColor,
-                    borderWidth: cameraSource === 'inapp' ? 2 : 1,
-                    marginBottom: 0,
-                  },
-                ]}
-              >
-                <View style={styles.optionHeader}>
-                  <FontAwesome6
-                    name={cameraSource === 'inapp' ? 'circle-dot' : 'circle'}
-                    size={16}
-                    color={
-                      cameraSource === 'inapp'
-                        ? colors.principal
-                        : colors.textMuted
-                    }
-                  />
-                  <Text style={[styles.optionTitle, { color: colors.textoEscuro }]}>
-                    Câmera Integrada na Tela
-                  </Text>
-                </View>
-                <Text style={[styles.optionDesc, { color: colors.textMuted }]}>
-                  Preview de vídeo direto na tela do app. (Em alguns aparelhos com Expo Go, o preview pode não renderizar).
-                </Text>
-              </TouchableOpacity>
             </View>
 
             {/* Modo de Captura da Câmera (Parcial vs Completa) */}
