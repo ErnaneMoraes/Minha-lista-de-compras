@@ -1,6 +1,6 @@
 import 'react-native-gesture-handler';
 import React from 'react';
-import { ActivityIndicator, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import {
@@ -43,6 +43,30 @@ function HeaderSettingsButton() {
   );
 }
 
+function HeaderTitleWithIcon({ icon, title }) {
+  const { colors } = useAppSettings();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      <FontAwesome6
+        name={icon}
+        size={18}
+        color={colors.textoPrincipal}
+        style={{ marginRight: 9 }}
+      />
+      <Text
+        style={{
+          color: colors.textoPrincipal,
+          fontWeight: 'bold',
+          fontSize: 19,
+        }}
+        numberOfLines={1}
+      >
+        {title}
+      </Text>
+    </View>
+  );
+}
+
 function MainTabs() {
   const { colors } = useAppSettings();
   const insets = useSafeAreaInsets();
@@ -81,6 +105,9 @@ function MainTabs() {
         component={ListasScreen}
         options={{
           title: 'Minhas Compras',
+          headerTitle: () => (
+            <HeaderTitleWithIcon icon="house" title="Minhas Compras" />
+          ),
           tabBarLabel: 'Minhas Compras',
           tabBarIcon: ({ color, size }) => (
             <FontAwesome6 name="cart-shopping" size={size - 3} color={color} />
@@ -92,6 +119,12 @@ function MainTabs() {
         component={LembretesScreen}
         options={{
           title: 'Lista de Lembrete',
+          headerTitle: () => (
+            <HeaderTitleWithIcon
+              icon="clipboard-check"
+              title="Lista de Lembrete"
+            />
+          ),
           tabBarLabel: 'Lembretes',
           tabBarIcon: ({ color, size }) => (
             <FontAwesome6 name="clipboard-check" size={size - 3} color={color} />
@@ -103,6 +136,9 @@ function MainTabs() {
         component={RelatorioScreen}
         options={{
           title: 'Resumo de Gastos',
+          headerTitle: () => (
+            <HeaderTitleWithIcon icon="chart-pie" title="Resumo de Gastos" />
+          ),
           tabBarLabel: 'Resumo de Gastos',
           tabBarIcon: ({ color, size }) => (
             <FontAwesome6 name="chart-pie" size={size - 3} color={color} />

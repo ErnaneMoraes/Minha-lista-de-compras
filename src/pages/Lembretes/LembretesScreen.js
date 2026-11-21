@@ -481,7 +481,6 @@ export default function LembretesScreen({ navigation }) {
                 unit: activeReminderForAdd.unit || 'un',
                 category: activeReminderForAdd.category || 'Outros',
                 price: 0,
-                priceType: 'varejo',
                 description: '',
               }
             : null

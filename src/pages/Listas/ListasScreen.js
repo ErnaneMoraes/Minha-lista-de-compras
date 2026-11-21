@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -23,10 +23,17 @@ import {
   formatListDateLabel,
 } from '../../storage/shoppingStorage';
 
+const STATUS_FILTERS = [
+  { key: 'all', label: 'Todas' },
+  { key: 'open', label: 'Em aberto' },
+  { key: 'completed', label: 'Finalizadas' },
+];
+
 export default function ListasScreen({ navigation }) {
   const { colors, dataVersion } = useAppSettings();
   const [lists, setLists] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'open' | 'completed'
 
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [editingList, setEditingList] = useState(null);
@@ -52,6 +59,34 @@ export default function ListasScreen({ navigation }) {
     const unsubscribe = navigation.addListener('focus', fetchLists);
     return unsubscribe;
   }, [navigation, fetchLists, dataVersion]);
+
+  const filteredLists = useMemo(() => {
+    if (statusFilter === 'open') {
+      return lists.filter((l) => !l.completed);
+    }
+    if (statusFilter === 'completed') {
+      return lists.filter((l) => Boolean(l.completed));
+    }
+    return lists;
+  }, [lists, statusFilter]);
+
+  const handleChangeStatusFilter = (nextFilter) => {
+    setStatusFilter(nextFilter);
+    if (selectionMode) {
+      const nextVisibleIds = new Set(
+        lists
+          .filter((l) =>
+            nextFilter === 'open'
+              ? !l.completed
+              : nextFilter === 'completed'
+                ? Boolean(l.completed)
+                : true
+          )
+          .map((l) => l.id)
+      );
+      setSelectedIds((prev) => prev.filter((id) => nextVisibleIds.has(id)));
+    }
+  };
 
   const handleOpenCreate = () => {
     setEditingList(null);
@@ -111,10 +146,13 @@ export default function ListasScreen({ navigation }) {
   };
 
   const handleSelectAll = () => {
-    if (selectedIds.length === lists.length) {
+    const visibleIds = filteredLists.map((l) => l.id);
+    const allVisibleSelected =
+      visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
+    if (allVisibleSelected) {
       setSelectedIds([]);
     } else {
-      setSelectedIds(lists.map((l) => l.id));
+      setSelectedIds(visibleIds);
     }
   };
 
@@ -126,6 +164,21 @@ export default function ListasScreen({ navigation }) {
     setSelectedIds([]);
     await fetchLists();
   };
+
+  const countLabelText = useMemo(() => {
+    const count = filteredLists.length;
+    if (statusFilter === 'open') {
+      return `${count} ${count === 1 ? 'compra em aberto' : 'compras em aberto'}`;
+    }
+    if (statusFilter === 'completed') {
+      return `${count} ${count === 1 ? 'compra finalizada' : 'compras finalizadas'}`;
+    }
+    return `${count} ${count === 1 ? 'compra registrada' : 'compras registradas'}`;
+  }, [filteredLists.length, statusFilter]);
+
+  const allFilteredSelected =
+    filteredLists.length > 0 &&
+    filteredLists.every((l) => selectedIds.includes(l.id));
 
   const renderListCard = ({ item }) => {
     const stats = calculateListStats(item);
@@ -317,79 +370,124 @@ export default function ListasScreen({ navigation }) {
         ]}
       >
         {!isLoading && lists.length > 0 ? (
-          <View style={localStyles.topActionRow}>
-            {selectionMode ? (
-              <>
-                <TouchableOpacity
-                  onPress={handleSelectAll}
-                  style={[
-                    localStyles.selectPill,
-                    { backgroundColor: colors.surfaceMuted },
-                  ]}
-                >
-                  <FontAwesome6
-                    name="check-double"
-                    size={12}
-                    color={colors.principal}
-                  />
-                  <Text
+          <>
+            {/* Status Filter Pill Bar: Todas | Em aberto | Finalizadas */}
+            <View
+              style={[
+                localStyles.statusFilterBar,
+                {
+                  backgroundColor: colors.card,
+                  borderColor: colors.borderColor,
+                },
+              ]}
+            >
+              {STATUS_FILTERS.map((tab) => {
+                const active = statusFilter === tab.key;
+                return (
+                  <TouchableOpacity
+                    key={tab.key}
+                    activeOpacity={0.8}
+                    onPress={() => handleChangeStatusFilter(tab.key)}
                     style={[
-                      localStyles.selectPillText,
-                      { color: colors.textoEscuro },
+                      localStyles.statusFilterTab,
+                      active && { backgroundColor: colors.principal },
                     ]}
                   >
-                    {selectedIds.length === lists.length
-                      ? 'Desmarcar todas'
-                      : 'Selecionar todas'}
-                  </Text>
-                </TouchableOpacity>
+                    <Text
+                      style={[
+                        localStyles.statusFilterText,
+                        {
+                          color: active
+                            ? colors.textoPrincipal
+                            : colors.textoEscuro,
+                        },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {tab.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
 
-                <TouchableOpacity
-                  onPress={handleExitSelectionMode}
-                  style={[
-                    localStyles.selectPill,
-                    { backgroundColor: colors.surfaceMuted },
-                  ]}
-                >
-                  <Text
+            <View style={localStyles.topActionRow}>
+              {selectionMode ? (
+                <>
+                  <TouchableOpacity
+                    onPress={handleSelectAll}
+                    disabled={filteredLists.length === 0}
                     style={[
-                      localStyles.selectPillText,
-                      { color: colors.textMuted },
+                      localStyles.selectPill,
+                      { backgroundColor: colors.surfaceMuted },
                     ]}
                   >
-                    Cancelar ({selectedIds.length})
-                  </Text>
-                </TouchableOpacity>
-              </>
-            ) : (
-              <>
-                <Text style={[localStyles.listCountLabel, { color: colors.textMuted }]}>
-                  {lists.length} {lists.length === 1 ? 'compra registrada' : 'compras registradas'}
-                </Text>
-                <TouchableOpacity
-                  onPress={() => handleEnterSelectionMode(null)}
-                  style={[
-                    localStyles.selectPill,
-                    { backgroundColor: colors.surfaceMuted },
-                  ]}
-                >
-                  <FontAwesome6
-                    name="list-check"
-                    size={12}
-                    color={colors.principal}
-                  />
-                  <Text
+                    <FontAwesome6
+                      name="check-double"
+                      size={12}
+                      color={colors.principal}
+                    />
+                    <Text
+                      style={[
+                        localStyles.selectPillText,
+                        { color: colors.textoEscuro },
+                      ]}
+                    >
+                      {allFilteredSelected
+                        ? 'Desmarcar todas'
+                        : 'Selecionar todas'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={handleExitSelectionMode}
                     style={[
-                      localStyles.selectPillText,
-                      { color: colors.textoEscuro },
+                      localStyles.selectPill,
+                      { backgroundColor: colors.surfaceMuted },
                     ]}
                   >
-                    Selecionar
+                    <Text
+                      style={[
+                        localStyles.selectPillText,
+                        { color: colors.textMuted },
+                      ]}
+                    >
+                      Cancelar ({selectedIds.length})
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <Text style={[localStyles.listCountLabel, { color: colors.textMuted }]}>
+                    {countLabelText}
                   </Text>
-                </TouchableOpacity>
-              </>
-            )}
-          </View>
+                  {filteredLists.length > 0 ? (
+                    <TouchableOpacity
+                      onPress={() => handleEnterSelectionMode(null)}
+                      style={[
+                        localStyles.selectPill,
+                        { backgroundColor: colors.surfaceMuted },
+                      ]}
+                    >
+                      <FontAwesome6
+                        name="list-check"
+                        size={12}
+                        color={colors.principal}
+                      />
+                      <Text
+                        style={[
+                          localStyles.selectPillText,
+                          { color: colors.textoEscuro },
+                        ]}
+                      >
+                        Selecionar
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </>
+              )}
+            </View>
+          </>
         ) : null}
 
         {isLoading ? (
@@ -448,9 +546,44 @@ export default function ListasScreen({ navigation }) {
               </TouchableOpacity>
             </View>
           </View>
+        ) : filteredLists.length === 0 ? (
+          <View style={localStyles.emptyContainer}>
+            <View
+              style={[
+                localStyles.emptyCard,
+                {
+                  backgroundColor: colors.card,
+                  borderColor: colors.borderColor,
+                },
+              ]}
+            >
+              <View
+                style={[
+                  localStyles.emptyIconCircle,
+                  { backgroundColor: colors.verdeSuave },
+                ]}
+              >
+                <FontAwesome6
+                  name={statusFilter === 'completed' ? 'circle-check' : 'clipboard-list'}
+                  size={30}
+                  color={colors.principal}
+                />
+              </View>
+              <Text style={[localStyles.emptyTitle, { color: colors.textoEscuro }]}>
+                {statusFilter === 'open'
+                  ? 'Nenhuma lista em aberto'
+                  : 'Nenhuma lista finalizada'}
+              </Text>
+              <Text style={[localStyles.emptyDesc, { color: colors.textMuted, marginBottom: 0 }]}>
+                {statusFilter === 'open'
+                  ? 'Todas as suas listas atuais já foram finalizadas ou você pode criar uma nova lista abaixo.'
+                  : 'Quando você finalizar uma compra, ela aparecerá neste filtro.'}
+              </Text>
+            </View>
+          </View>
         ) : (
           <FlatList
-            data={lists}
+            data={filteredLists}
             keyExtractor={(item) => item.id}
             renderItem={renderListCard}
             contentContainerStyle={{ paddingTop: 8, paddingBottom: 24 }}
@@ -552,8 +685,9 @@ export default function ListasScreen({ navigation }) {
       <ConfirmModal
         visible={showBatchDeleteConfirm}
         title="Excluir Listas Selecionadas"
-        message={`Deseja excluir permanentemente ${selectedIds.length} ${selectedIds.length === 1 ? 'lista selecionada' : 'listas selecionadas'
-          }?`}
+        message={`Deseja excluir permanentemente ${selectedIds.length} ${
+          selectedIds.length === 1 ? 'lista selecionada' : 'listas selecionadas'
+        }?`}
         confirmLabel="Excluir Todas"
         onCancel={() => setShowBatchDeleteConfirm(false)}
         onConfirm={handleConfirmBatchDelete}
@@ -568,11 +702,30 @@ const localStyles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  statusFilterBar: {
+    flexDirection: 'row',
+    borderRadius: 12,
+    padding: 4,
+    borderWidth: 1,
+    marginTop: 12,
+  },
+  statusFilterTab: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    borderRadius: 9,
+  },
+  statusFilterText: {
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
   topActionRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 12,
+    paddingTop: 10,
     paddingBottom: 6,
   },
   listCountLabel: {

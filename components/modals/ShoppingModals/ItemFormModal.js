@@ -21,7 +21,6 @@ import {
   maskBRLInput,
   parseBRLInput,
   numberToBRLMask,
-  formatCurrency,
 } from '../../../src/storage/shoppingStorage';
 
 export default function ItemFormModal({
@@ -37,9 +36,6 @@ export default function ItemFormModal({
   const [quantity, setQuantity] = useState('1');
   const [unit, setUnit] = useState('un');
   const [category, setCategory] = useState('Outros');
-  const [priceType, setPriceType] = useState('varejo'); // 'varejo' | 'atacado'
-  const [detectedRetailPrice, setDetectedRetailPrice] = useState(0);
-  const [detectedWholesalePrice, setDetectedWholesalePrice] = useState(0);
   const [priceMasked, setPriceMasked] = useState('');
   const [description, setDescription] = useState('');
   const [error, setError] = useState('');
@@ -47,24 +43,17 @@ export default function ItemFormModal({
   useEffect(() => {
     if (visible) {
       if (initialItem) {
-        const initType =
-          initialItem.priceType === 'atacado' ? 'atacado' : 'varejo';
-        const rPrice = Number(initialItem.retailPrice) || 0;
-        const wPrice = Number(initialItem.wholesalePrice) || 0;
         const basePrice =
           Number(initialItem.price) > 0
             ? Number(initialItem.price)
-            : initType === 'atacado' && wPrice > 0
-            ? wPrice
-            : rPrice;
+            : Number(initialItem.retailPrice) > 0
+              ? Number(initialItem.retailPrice)
+              : Number(initialItem.wholesalePrice) || 0;
 
         setName(initialItem.name || '');
         setQuantity(String(initialItem.quantity ?? 1));
         setUnit(initialItem.unit || 'un');
         setCategory(initialItem.category || 'Outros');
-        setPriceType(initType);
-        setDetectedRetailPrice(rPrice);
-        setDetectedWholesalePrice(wPrice);
         setPriceMasked(numberToBRLMask(basePrice));
         setDescription(initialItem.description ?? initialItem.notes ?? '');
       } else {
@@ -72,9 +61,6 @@ export default function ItemFormModal({
         setQuantity('1');
         setUnit('un');
         setCategory('Outros');
-        setPriceType('varejo');
-        setDetectedRetailPrice(0);
-        setDetectedWholesalePrice(0);
         setPriceMasked('');
         setDescription('');
       }
@@ -82,26 +68,9 @@ export default function ItemFormModal({
     }
   }, [visible, initialItem]);
 
-  const handleSelectPriceType = (nextType) => {
-    setPriceType(nextType);
-    if (nextType === 'atacado' && detectedWholesalePrice > 0) {
-      setPriceMasked(numberToBRLMask(detectedWholesalePrice));
-      if (error) setError('');
-    } else if (nextType === 'varejo' && detectedRetailPrice > 0) {
-      setPriceMasked(numberToBRLMask(detectedRetailPrice));
-      if (error) setError('');
-    }
-  };
-
   const handlePriceChange = (text) => {
     const masked = maskBRLInput(text);
     setPriceMasked(masked);
-    const numeric = parseBRLInput(masked);
-    if (priceType === 'atacado') {
-      setDetectedWholesalePrice(numeric);
-    } else {
-      setDetectedRetailPrice(numeric);
-    }
     if (error) setError('');
   };
 
@@ -138,11 +107,6 @@ export default function ItemFormModal({
       unit,
       category,
       price: parsedPrice,
-      priceType,
-      retailPrice:
-        priceType === 'varejo' ? parsedPrice : detectedRetailPrice,
-      wholesalePrice:
-        priceType === 'atacado' ? parsedPrice : detectedWholesalePrice,
       description: description.trim(),
     });
   };
@@ -153,11 +117,6 @@ export default function ItemFormModal({
     borderColor: colors.borderColor,
     color: colors.textoEscuro,
   };
-
-  const hasDualPricesDetected =
-    detectedRetailPrice > 0 &&
-    detectedWholesalePrice > 0 &&
-    Math.abs(detectedRetailPrice - detectedWholesalePrice) >= 0.01;
 
   return (
     <Modal
@@ -227,105 +186,6 @@ export default function ItemFormModal({
                   if (error) setError('');
                 }}
               />
-            </View>
-
-            <View style={ModalStyle.modalInputContainer}>
-              <Text style={[ModalStyle.modalLabel, { color: colors.textoEscuro }]}>
-                Tipo de Preço
-              </Text>
-              <View
-                style={[
-                  localStyles.priceTypeRow,
-                  {
-                    backgroundColor: colors.surfaceMuted,
-                    borderColor: colors.borderColor,
-                  },
-                ]}
-              >
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  onPress={() => handleSelectPriceType('varejo')}
-                  style={[
-                    localStyles.priceTypeOption,
-                    priceType === 'varejo' && {
-                      backgroundColor: colors.principal,
-                    },
-                  ]}
-                >
-                  <FontAwesome6
-                    name={priceType === 'varejo' ? 'circle-dot' : 'circle'}
-                    size={13}
-                    color={
-                      priceType === 'varejo'
-                        ? colors.textoPrincipal
-                        : colors.textMuted
-                    }
-                  />
-                  <Text
-                    style={[
-                      localStyles.priceTypeText,
-                      {
-                        color:
-                          priceType === 'varejo'
-                            ? colors.textoPrincipal
-                            : colors.textoEscuro,
-                      },
-                    ]}
-                  >
-                    Varejo
-                    {detectedRetailPrice > 0
-                      ? ` (${formatCurrency(detectedRetailPrice)})`
-                      : ''}
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  onPress={() => handleSelectPriceType('atacado')}
-                  style={[
-                    localStyles.priceTypeOption,
-                    priceType === 'atacado' && {
-                      backgroundColor: colors.principal,
-                    },
-                  ]}
-                >
-                  <FontAwesome6
-                    name={priceType === 'atacado' ? 'circle-dot' : 'circle'}
-                    size={13}
-                    color={
-                      priceType === 'atacado'
-                        ? colors.textoPrincipal
-                        : colors.textMuted
-                    }
-                  />
-                  <Text
-                    style={[
-                      localStyles.priceTypeText,
-                      {
-                        color:
-                          priceType === 'atacado'
-                            ? colors.textoPrincipal
-                            : colors.textoEscuro,
-                      },
-                    ]}
-                  >
-                    Atacado
-                    {detectedWholesalePrice > 0
-                      ? ` (${formatCurrency(detectedWholesalePrice)})`
-                      : ''}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              {hasDualPricesDetected ? (
-                <Text
-                  style={[
-                    localStyles.dualPriceHint,
-                    { color: colors.principal },
-                  ]}
-                >
-                  2 preços identificados na etiqueta! Alterne entre Varejo e Atacado para aplicar.
-                </Text>
-              ) : null}
             </View>
 
             <View style={localStyles.row}>
@@ -539,31 +399,6 @@ const localStyles = StyleSheet.create({
     fontWeight: '600',
     marginLeft: 8,
     flex: 1,
-  },
-  priceTypeRow: {
-    flexDirection: 'row',
-    borderRadius: 12,
-    padding: 4,
-    borderWidth: 1,
-  },
-  priceTypeOption: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 9,
-    paddingHorizontal: 6,
-    borderRadius: 9,
-  },
-  priceTypeText: {
-    fontSize: 13,
-    fontWeight: 'bold',
-    marginLeft: 6,
-  },
-  dualPriceHint: {
-    fontSize: 12,
-    fontWeight: '600',
-    marginTop: 5,
   },
   qtyControlWrap: {
     flexDirection: 'row',

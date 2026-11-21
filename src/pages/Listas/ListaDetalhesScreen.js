@@ -8,6 +8,8 @@ import {
   StyleSheet,
   ActivityIndicator,
   Platform,
+  Modal,
+  Image,
 } from 'react-native';
 import { FontAwesome6 } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -62,6 +64,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
   const [ocrProgress, setOcrProgress] = useState(0);
   const [ocrImageUri, setOcrImageUri] = useState(null);
   const ocrCancelledRef = useRef(false);
+  const [pendingPriceChoice, setPendingPriceChoice] = useState(null);
 
   const loadList = useCallback(async () => {
     if (!listId) {
@@ -214,29 +217,57 @@ export default function ListaDetalhesScreen({ route, navigation }) {
     setIsOcrRunning(false);
     setOcrImageUri(null);
 
-    const missingNameOrPrice = !extracted.name || extracted.price <= 0;
+    const detectedPrices = Array.isArray(extracted.detectedPrices)
+      ? extracted.detectedPrices.filter((p) => Number(p) > 0)
+      : [];
+
+    const draftItem = {
+      name: extracted.name || '',
+      price:
+        detectedPrices.length > 0
+          ? detectedPrices[0]
+          : extracted.price > 0
+            ? extracted.price
+            : 0,
+      quantity: 1,
+      unit: extracted.unit || 'un',
+      category: extracted.category || 'Outros',
+      description: '',
+    };
+
+    if (detectedPrices.length >= 2) {
+      setPendingPriceChoice({
+        prices: detectedPrices,
+        draftItem,
+      });
+      return;
+    }
+
+    const missingNameOrPrice = !draftItem.name || draftItem.price <= 0;
     setOcrHint(
       missingNameOrPrice
         ? 'Etiqueta capturada. Confira ou complete nome e preço antes de salvar.'
         : ''
     );
-    setEditingItem({
-      name: extracted.name || '',
-      price: extracted.price > 0 ? extracted.price : 0,
-      priceType: 'varejo',
-      retailPrice:
-        extracted.retailPrice > 0
-          ? extracted.retailPrice
-          : extracted.price > 0
-            ? extracted.price
-            : 0,
-      wholesalePrice:
-        extracted.wholesalePrice > 0 ? extracted.wholesalePrice : 0,
-      quantity: 1,
-      unit: extracted.unit || 'un',
-      category: extracted.category || 'Outros',
-      description: '',
-    });
+    setEditingItem(draftItem);
+    setModalMode('ocr');
+    setIsItemModalVisible(true);
+  };
+
+  const handleSelectDetectedPrice = (chosenPrice) => {
+    if (!pendingPriceChoice) return;
+    const nextItem = {
+      ...pendingPriceChoice.draftItem,
+      price: Number(chosenPrice) || 0,
+    };
+    setPendingPriceChoice(null);
+    const missingNameOrPrice = !nextItem.name || nextItem.price <= 0;
+    setOcrHint(
+      missingNameOrPrice
+        ? 'Etiqueta capturada. Confira ou complete nome e preço antes de salvar.'
+        : ''
+    );
+    setEditingItem(nextItem);
     setModalMode('ocr');
     setIsItemModalVisible(true);
   };
@@ -492,7 +523,15 @@ export default function ListaDetalhesScreen({ route, navigation }) {
 
   const renderItem = ({ item }) => {
     const qty = Number(item.quantity ?? item.quantidade ?? 1) || 1;
-    const unitPrice = Number(item.precoUnitario ?? item.price ?? item.preco ?? 0) || 0;
+    const unitPrice =
+      Number(
+        item.precoUnitario ??
+          item.price ??
+          item.preco ??
+          item.retailPrice ??
+          item.wholesalePrice ??
+          0
+      ) || 0;
     const subtotal = Math.round(qty * unitPrice * 100) / 100;
     const desc = item.description ?? item.notes ?? '';
 
@@ -532,23 +571,6 @@ export default function ListaDetalhesScreen({ route, navigation }) {
                 {item.category || 'Outros'}
               </Text>
             </View>
-            {item.priceType === 'atacado' ? (
-              <View
-                style={[
-                  localStyles.categoryBadge,
-                  { backgroundColor: colors.surfaceMuted },
-                ]}
-              >
-                <Text
-                  style={[
-                    localStyles.categoryBadgeText,
-                    { color: colors.textMuted },
-                  ]}
-                >
-                  Atacado
-                </Text>
-              </View>
-            ) : null}
             <Text style={[localStyles.itemPriceText, { color: colors.principal }]}>
               {formatCurrency(unitPrice)} / {item.unit || 'un'}
             </Text>
@@ -908,6 +930,119 @@ export default function ListaDetalhesScreen({ route, navigation }) {
         onCancel={handleCancelOcr}
       />
 
+      {/* Modal de Seleção quando o OCR detecta 2 ou mais preços distintos na mesma etiqueta */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={Boolean(pendingPriceChoice)}
+        onRequestClose={() => handleSelectDetectedPrice(0)}
+      >
+        <View style={localStyles.priceChoiceOverlay}>
+          <View
+            style={[
+              localStyles.priceChoiceCard,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.borderColor,
+              },
+            ]}
+          >
+            <View
+              style={[
+                localStyles.priceChoiceIconWrap,
+                { backgroundColor: colors.verdeSuave },
+              ]}
+            >
+              <FontAwesome6 name="tags" size={22} color={colors.principal} />
+            </View>
+
+            <Text
+              style={[localStyles.priceChoiceTitle, { color: colors.textoEscuro }]}
+            >
+              Mais de um preço identificado
+            </Text>
+            {pendingPriceChoice?.draftItem?.name ? (
+              <Text
+                style={[
+                  localStyles.priceChoiceProduct,
+                  { color: colors.principal },
+                ]}
+                numberOfLines={2}
+              >
+                {pendingPriceChoice.draftItem.name}
+              </Text>
+            ) : null}
+            <Text
+              style={[localStyles.priceChoiceDesc, { color: colors.textMuted }]}
+            >
+              Identificamos múltiplos valores na etiqueta. Qual preço você deseja considerar?
+            </Text>
+
+            <View style={localStyles.priceChoiceList}>
+              {(pendingPriceChoice?.prices || []).map((priceVal, idx) => (
+                <TouchableOpacity
+                  key={`${priceVal}-${idx}`}
+                  activeOpacity={0.8}
+                  onPress={() => handleSelectDetectedPrice(priceVal)}
+                  style={[
+                    localStyles.priceChoiceOptionBtn,
+                    {
+                      backgroundColor: colors.verdeSuave,
+                      borderColor: colors.principal,
+                    },
+                  ]}
+                >
+                  <View style={localStyles.priceChoiceOptionLeft}>
+                    <FontAwesome6
+                      name="circle-check"
+                      size={16}
+                      color={colors.principal}
+                    />
+                    <Text
+                      style={[
+                        localStyles.priceChoiceOptionLabel,
+                        { color: colors.textoEscuro },
+                      ]}
+                    >
+                      Opção {idx + 1}
+                    </Text>
+                  </View>
+                  <Text
+                    style={[
+                      localStyles.priceChoiceOptionValue,
+                      { color: colors.principal },
+                    ]}
+                  >
+                    {formatCurrency(priceVal)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => handleSelectDetectedPrice(0)}
+              style={[
+                localStyles.priceChoiceManualBtn,
+                {
+                  backgroundColor: colors.surfaceMuted,
+                  borderColor: colors.borderColor,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  localStyles.priceChoiceManualText,
+                  { color: colors.textoEscuro },
+                ]}
+              >
+                Digitar outro valor manualmente
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <ConfirmModal
         visible={Boolean(itemToDelete)}
         title="Remover Produto"
@@ -1216,5 +1351,86 @@ const localStyles = StyleSheet.create({
     fontSize: 10.5,
     fontWeight: '700',
     marginTop: 1,
+  },
+  priceChoiceOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  priceChoiceCard: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 22,
+    alignItems: 'center',
+  },
+  priceChoiceIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  priceChoiceTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  priceChoiceProduct: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  priceChoiceDesc: {
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 19,
+    marginBottom: 16,
+  },
+  priceChoiceList: {
+    width: '100%',
+    marginBottom: 8,
+  },
+  priceChoiceOptionBtn: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    marginBottom: 10,
+  },
+  priceChoiceOptionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  priceChoiceOptionLabel: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginLeft: 10,
+  },
+  priceChoiceOptionValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  priceChoiceManualBtn: {
+    width: '100%',
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  priceChoiceManualText: {
+    fontSize: 13,
+    fontWeight: 'bold',
   },
 });

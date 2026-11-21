@@ -142,7 +142,14 @@ export function calculateListStats(list) {
     const qty = Math.max(0, Number(item.quantity ?? item.quantidade ?? 1) || 0);
     const unitPrice = Math.max(
       0,
-      Number(item.precoUnitario ?? item.price ?? item.preco ?? 0) || 0
+      Number(
+        item.precoUnitario ??
+          item.price ??
+          item.preco ??
+          item.retailPrice ??
+          item.wholesalePrice ??
+          0
+      ) || 0
     );
     const subtotal = qty * unitPrice;
     totalQuantity += qty;
@@ -322,7 +329,18 @@ export async function finalizeList(listId) {
     let total = 0;
     const byCategory = {};
     for (const item of items) {
-      const sub = (Number(item.quantity) || 0) * (Number(item.price) || 0);
+      const unitPrice = Math.max(
+        0,
+        Number(
+          item.precoUnitario ??
+            item.price ??
+            item.preco ??
+            item.retailPrice ??
+            item.wholesalePrice ??
+            0
+        ) || 0
+      );
+      const sub = (Number(item.quantity) || 0) * unitPrice;
       total += sub;
       const cat = item.category || 'Outros';
       byCategory[cat] = (byCategory[cat] || 0) + sub;
@@ -415,9 +433,6 @@ export async function addItemToList(listId, itemData) {
     unit: itemData?.unit || 'un',
     category: itemData?.category || 'Outros',
     price: parseDecimal(itemData?.price),
-    priceType: itemData?.priceType === 'atacado' ? 'atacado' : 'varejo',
-    retailPrice: parseDecimal(itemData?.retailPrice),
-    wholesalePrice: parseDecimal(itemData?.wholesalePrice),
     description: desc,
     checked: Boolean(itemData?.checked),
   };
@@ -442,7 +457,7 @@ export async function updateItemInList(listId, itemId, updates) {
           ? String(updates.description ?? updates.notes ?? '').trim()
           : item.description ?? item.notes ?? '';
         return {
-          ...item,
+          id: item.id,
           name: updates.name !== undefined ? String(updates.name).trim() || item.name : item.name,
           quantity:
             updates.quantity !== undefined
@@ -451,20 +466,6 @@ export async function updateItemInList(listId, itemId, updates) {
           unit: updates.unit !== undefined ? updates.unit : item.unit,
           category: updates.category !== undefined ? updates.category : item.category,
           price: updates.price !== undefined ? parseDecimal(updates.price) : item.price,
-          priceType:
-            updates.priceType !== undefined
-              ? updates.priceType === 'atacado'
-                ? 'atacado'
-                : 'varejo'
-              : item.priceType || 'varejo',
-          retailPrice:
-            updates.retailPrice !== undefined
-              ? parseDecimal(updates.retailPrice)
-              : item.retailPrice || 0,
-          wholesalePrice:
-            updates.wholesalePrice !== undefined
-              ? parseDecimal(updates.wholesalePrice)
-              : item.wholesalePrice || 0,
           description: nextDesc,
           checked: updates.checked !== undefined ? Boolean(updates.checked) : item.checked,
         };
@@ -624,9 +625,6 @@ export async function sendCheckedRemindersToActiveList() {
           unit: rem.unit || 'un',
           category: rem.category || 'Outros',
           price: 0,
-          priceType: 'varejo',
-          retailPrice: 0,
-          wholesalePrice: 0,
           description: rem.notes || 'Adicionado da Lista de Lembrete',
           checked: false,
         },
