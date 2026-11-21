@@ -94,8 +94,8 @@ const OCR_HTML = `<!DOCTYPE html>
         }
         if (tx0 === -1 || tx1 - tx0 < w * 0.25) { tx0 = 0; tx1 = w - 1; }
 
-        var mx = (tx0 > 4 || tx1 < w - 5) ? Math.round((tx1 - tx0) * 0.015) : 0;
-        var my = (ty0 > 4 || ty1 < h - 5) ? Math.round((ty1 - ty0) * 0.03) : 0;
+        var mx = ((tx0 > 4 || tx1 < w - 5) && (tx1 - tx0 < w * 0.85)) ? Math.round((tx1 - tx0) * 0.015) : 0;
+        var my = ((ty0 > 4 || ty1 < h - 5) && (ty1 - ty0 < h * 0.85)) ? Math.round((ty1 - ty0) * 0.03) : 0;
         var iso = cropRgba(rgba, w, Math.max(0, tx0+mx), Math.max(0, ty0+my), Math.min(w, tx1+1-mx), Math.min(h, ty1+1-my));
 
         var scale = iso.width > 1100 ? 1100 / iso.width : (iso.width < 900 ? Math.min(2, 1050 / iso.width) : 1);
@@ -179,7 +179,9 @@ const OCR_HTML = `<!DOCTYPE html>
         }
 
         var titleLimitY = giant.length >= 2 ? Math.max(Math.round(nh * 0.28), gY0 - 6) : Math.round(nh * 0.4);
-        var tc = comps.filter(function (c) { return c.y1 <= titleLimitY && c.h >= 12 && c.h <= nh * 0.26 && c.w >= 3 && c.w <= nw * 0.25 && c.x0 >= nw * 0.08; });
+        var leftStripCount = comps.filter(function (c) { return c.x1 < nw * 0.085 && c.y0 > titleLimitY && c.h < nh * 0.12; }).length;
+        var minTitleX = leftStripCount >= 3 ? nw * 0.08 : 0;
+        var tc = comps.filter(function (c) { return c.y1 <= titleLimitY && c.h >= 12 && c.h <= nh * 0.28 && c.w >= 3 && c.w <= nw * 0.35 && c.x0 >= minTitleX; });
         tc.sort(function (a, b) { return a.y0 - b.y0; });
         var rows = [];
         for (var i = 0; i < tc.length; i++) {

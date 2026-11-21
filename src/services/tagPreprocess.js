@@ -115,8 +115,8 @@ function isolateTagBounds(rgba, w, h) {
     return { x0: 0, y0: 0, x1: w, y1: h };
   }
 
-  const trimmedY = ty0 > 4 || ty1 < h - 5;
-  const trimmedX = tx0 > 4 || tx1 < w - 5;
+  const trimmedY = (ty0 > 4 || ty1 < h - 5) && ty1 - ty0 < h * 0.85;
+  const trimmedX = (tx0 > 4 || tx1 < w - 5) && tx1 - tx0 < w * 0.85;
   const mx = trimmedX ? Math.round((tx1 - tx0) * 0.015) : 0;
   const my = trimmedY ? Math.round((ty1 - ty0) * 0.03) : 0;
 
@@ -202,14 +202,18 @@ function findConnectedComponents(ink, nw, nh) {
 }
 
 function selectTopTitleRow(comps, titleLimitY, nw, nh) {
+  const hasLeftVerticalStrip =
+    comps.filter((c) => c.x1 < nw * 0.085 && c.y0 > titleLimitY && c.h < nh * 0.12).length >= 3;
+  const minTitleX = hasLeftVerticalStrip ? nw * 0.08 : 0;
+
   const candidates = comps.filter(
     (c) =>
       c.y1 <= titleLimitY &&
       c.h >= 12 &&
-      c.h <= nh * 0.26 &&
+      c.h <= nh * 0.28 &&
       c.w >= 3 &&
-      c.w <= nw * 0.25 &&
-      c.x0 >= nw * 0.08
+      c.w <= nw * 0.35 &&
+      c.x0 >= minTitleX
   );
   if (candidates.length === 0) return null;
 

@@ -1,4 +1,4 @@
-export const AppColors = {
+export const LightColors = {
   principal: '#15803D',
   primary: '#15803D',
   verdePrincipal: '#16A34A',
@@ -8,6 +8,7 @@ export const AppColors = {
   accentSoft: '#E0F2FE',
   warning: '#D97706',
   warningSoft: '#FEF3C7',
+  warningText: '#92400E',
   background: '#F8FAFC',
   card: '#FFFFFF',
   surfaceMuted: '#F1F5F9',
@@ -21,4 +22,50 @@ export const AppColors = {
   disabledBackground: '#CBD5E1',
   logoutRed: '#DC2626',
   dangerSoft: '#FEE2E2',
+  dangerText: '#991B1B',
+  budgetWarningBg: '#FEF3C7',
+  budgetWarningBorder: '#F59E0B',
+  budgetWarningText: '#92400E',
+  budgetDangerBg: '#FEE2E2',
+  budgetDangerBorder: '#EF4444',
+  budgetDangerText: '#991B1B',
 };
+
+export const DarkColors = {
+  principal: '#16A34A',
+  primary: '#15803D',
+  verdePrincipal: '#22C55E',
+  verdeSuave: '#143321',
+  success: '#22C55E',
+  accent: '#38BDF8',
+  accentSoft: '#0C4A6E',
+  warning: '#F59E0B',
+  warningSoft: '#3D3214',
+  warningText: '#FDE68A',
+  background: '#121212',
+  card: '#1E1E1E',
+  surfaceMuted: '#2A2A2A',
+  textoPrincipal: '#FFFFFF',
+  textoClaro: '#F1F5F9',
+  textoEscuro: '#F1F5F9',
+  darkText: '#F1F5F9',
+  textMuted: '#94A3B8',
+  inputBackground: '#262626',
+  borderColor: '#334155',
+  disabledBackground: '#334155',
+  logoutRed: '#EF4444',
+  dangerSoft: '#3F1D1D',
+  dangerText: '#FCA5A5',
+  budgetWarningBg: '#3D3214',
+  budgetWarningBorder: '#D97706',
+  budgetWarningText: '#FDE68A',
+  budgetDangerBg: '#3F1D1D',
+  budgetDangerBorder: '#EF4444',
+  budgetDangerText: '#FCA5A5',
+};
+
+export const AppColors = { ...LightColors };
+
+export function getThemeColors(isDarkMode) {
+  return isDarkMode ? DarkColors : LightColors;
+}

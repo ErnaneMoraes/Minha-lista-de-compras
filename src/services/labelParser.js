@@ -4,7 +4,27 @@ const REFERENCE_PRICE_RE =
   /\b(PRE[CÇ]O\s*(?:DO\s*|POR\s*)?(?:LITRO|L\b|KG|QUILO|100\s*G|100\s*ML|UNID|UN\b|METRO)|VALOR\s*(?:POR|DO)\s*(?:LITRO|KG|100)|P\/\s*(?:KG|L|LITRO))\b/i;
 const THREE_DECIMAL_PRICE_RE = /\bR?\$?\s*\d+[.,]\d{3}\b/;
 const META_NOISE_RE =
-  /\b(CAMPANHA|C[OÓ]D\.?|CODIGO|PLU|EAN|VALIDADE|VAL\.|EMISS[AÃ]O|ATUALIZ|LOJA|SE[CÇ][AÃ]O|ATACADO|VAREJO|OFERTA\s+V[AÁ]LIDA)\b/i;
+  /\b(CAMPANHA|C[OÓ]D\.?|CODIGO|PLU|EAN|VALIDADE|VAL\.|EMISS[AÃ]O|ATUALIZ|LOJA|SE[CÇ][AÃ]O|OFERTA\s+V[AÁ]LIDA)\b/i;
+const WHOLESALE_KEYWORD_RE =
+  /\b(ATACADO|ATAC\.?|A\s*PARTIR\s*DE|LEVANDO\s*\d+|CX\s*C\/|FARDO\s*C\/|PACK\s*C\/)\b/i;
+const RETAIL_KEYWORD_RE =
+  /\b(VAREJO|VAR\.?|PRE[CÇ]O\s*UNIT[AÁ]RIO|UNIT[AÁ]RIO|UNIT\.?|1\s*UNID\.?)\b/i;
+const DATE_NOISE_RE = /\b\d{1,2}[\/.-]\d{1,2}[\/.-](?:\d{4}|\d{2})\b/g;
+const BARCODE_SEQUENCE_RE = /\b(?:\d{8,14}|\d\s+\d{5,6}\s+\d{5,6})\b/g;
+const WEIGHT_MEASURE_RE = /\b\d{1,4}(?:[,.]\d{1,3})?\s*(?:KG|GR|G|MG|ML|LT|LTS|L)\b/gi;
+
+function stripNonPricePatterns(str) {
+  return String(str || '')
+    .replace(DATE_NOISE_RE, ' ')
+    .replace(BARCODE_SEQUENCE_RE, ' ')
+    .replace(WEIGHT_MEASURE_RE, ' ');
+}
+
+function normalizePriceTokenDigits(str) {
+  return String(str || '')
+    .replace(/(?<=\d)[OQD](?=\d|[,.]|$)/g, '0')
+    .replace(/(?<=^|[R$\s,.])[OQD](?=\d)/g, '0');
+}
 
 function normalizeText(value) {
   return String(value || '')
@@ -163,6 +183,8 @@ function annotateNoiseLines(lineRecords) {
     const refPrice = isReferencePriceNoise(line.text);
     const meta = isMetaNoise(line.text);
     const barcode = isBarcodeNoise(line.text);
+    const isWholesaleLine = WHOLESALE_KEYWORD_RE.test(line.text);
+    const isRetailLine = RETAIL_KEYWORD_RE.test(line.text);
 
     const isVerticalNoise =
       line.bbox.hasBbox &&
@@ -180,6 +202,8 @@ function annotateNoiseLines(lineRecords) {
         refPrice,
         meta,
         barcode,
+        isWholesaleLine,
+        isRetailLine,
         isVerticalNoise,
         isAnyNoise: tax || refPrice || meta || barcode || isVerticalNoise,
       },
@@ -194,11 +218,121 @@ function overlapsLineVertically(wordBbox, lineBbox) {
 }
 
 function parsePriceString(text) {
-  const clean = normalizeText(text);
+  const clean = normalizePriceTokenDigits(stripNonPricePatterns(normalizeText(text)));
   const match = clean.match(/(\d{1,4})\s*([,.])\s*(\d{2})(?!\d)/);
-  if (!match) return 0;
-  const val = parseFloat(`${match[1]}.${match[3]}`);
-  return Number.isFinite(val) && val > 0 && val <= 9999.99 ? val : 0;
+  if (match) {
+    const val = parseFloat(`${match[1]}.${match[3]}`);
+    return Number.isFinite(val) && val > 0 && val <= 9999.99 ? val : 0;
+  }
+  const separatedMatch = clean.match(/^(?:R\$\s*)?(\d{1,3})\s+(\d{2})$/i);
+  if (separatedMatch) {
+    const val = parseFloat(`${separatedMatch[1]}.${separatedMatch[2]}`);
+    return Number.isFinite(val) && val > 0 && val <= 999.99 ? val : 0;
+  }
+  return 0;
+}
+
+function extractAllPricesFromLineText(text) {
+  const cleaned = normalizePriceTokenDigits(stripNonPricePatterns(text));
+  const results = [];
+  const regex = /(?:\b|^)(R\$\s*)?(\d{1,4})\s*([,.])\s*(\d{2})(?!\d)/gi;
+  let m;
+  while ((m = regex.exec(cleaned)) !== null) {
+    const val = parseFloat(`${m[2]}.${m[4]}`);
+    if (Number.isFinite(val) && val > 0 && val <= 9999.99) {
+      results.push({ value: val, raw: m[0], index: m.index });
+    }
+  }
+  if (results.length === 0) {
+    const sepRegex = /\bR\$\s*(\d{1,3})\s+(\d{2})(?!\d|[,.])/gi;
+    let sm;
+    while ((sm = sepRegex.exec(cleaned)) !== null) {
+      const val = parseFloat(`${sm[1]}.${sm[2]}`);
+      if (Number.isFinite(val) && val > 0 && val <= 999.99) {
+        results.push({ value: val, raw: sm[0], index: sm.index });
+      }
+    }
+  }
+  return results;
+}
+
+export function extractRetailAndWholesalePrices(annotatedLines, primaryPrice, candidates = []) {
+  let wholesalePrice = 0;
+  let retailPrice = 0;
+
+  for (let i = 0; i < annotatedLines.length; i += 1) {
+    const line = annotatedLines[i];
+    if (line.flags.tax || line.flags.refPrice || line.flags.meta) continue;
+
+    const lineText = line.text;
+    const prevLineText = i > 0 ? annotatedLines[i - 1].text : '';
+
+    // Check if single line contains both Varejo and Atacado with prices
+    const hasWholesaleInLine = WHOLESALE_KEYWORD_RE.test(lineText);
+    const hasRetailInLine = RETAIL_KEYWORD_RE.test(lineText);
+    const pricesInLine = extractAllPricesFromLineText(lineText);
+
+    if (hasWholesaleInLine && hasRetailInLine && pricesInLine.length >= 2) {
+      const wIdx = lineText.search(WHOLESALE_KEYWORD_RE);
+      const rIdx = lineText.search(RETAIL_KEYWORD_RE);
+      if (wIdx < rIdx) {
+        wholesalePrice = pricesInLine[0].value;
+        retailPrice = pricesInLine[1].value;
+      } else {
+        retailPrice = pricesInLine[0].value;
+        wholesalePrice = pricesInLine[1].value;
+      }
+      continue;
+    }
+
+    if (pricesInLine.length >= 1) {
+      const firstVal = pricesInLine[0].value;
+      if (hasWholesaleInLine || WHOLESALE_KEYWORD_RE.test(prevLineText)) {
+        if (!wholesalePrice) wholesalePrice = firstVal;
+      } else if (hasRetailInLine || RETAIL_KEYWORD_RE.test(prevLineText)) {
+        if (!retailPrice) retailPrice = firstVal;
+      }
+    }
+  }
+
+  // Gather distinct valid price values across candidates
+  const uniquePrices = [];
+  if (primaryPrice > 0) uniquePrices.push(primaryPrice);
+  for (const c of candidates) {
+    if (c.value > 0 && !uniquePrices.some((p) => Math.abs(p - c.value) < 0.005)) {
+      uniquePrices.push(c.value);
+    }
+  }
+
+  const labelHasWholesaleContext = annotatedLines.some(
+    (l) => l.flags.isWholesaleLine || l.flags.isRetailLine
+  );
+
+  // If one of wholesale/retail was matched by keyword and there is another distinct main price candidate
+  if (wholesalePrice > 0 && !retailPrice) {
+    const other = uniquePrices.find((p) => Math.abs(p - wholesalePrice) >= 0.01);
+    if (other) {
+      retailPrice = other;
+    }
+  } else if (retailPrice > 0 && !wholesalePrice) {
+    const other = uniquePrices.find((p) => Math.abs(p - retailPrice) >= 0.01);
+    if (other) {
+      wholesalePrice = other;
+    }
+  } else if (!retailPrice && !wholesalePrice && labelHasWholesaleContext && uniquePrices.length >= 2) {
+    const topTwo = uniquePrices.slice(0, 2);
+    retailPrice = Math.max(topTwo[0], topTwo[1]);
+    wholesalePrice = Math.min(topTwo[0], topTwo[1]);
+  }
+
+  if (!retailPrice && primaryPrice > 0) {
+    retailPrice = primaryPrice;
+  }
+
+  return {
+    retailPrice,
+    wholesalePrice,
+  };
 }
 
 function extractMainPrice(annotatedLines, wordRecords, imageWidth, imageHeight) {
@@ -229,7 +363,16 @@ function extractMainPrice(annotatedLines, wordRecords, imageWidth, imageHeight) 
   };
 
   for (const word of wordRecords) {
-    const match = word.text.match(/^R?\$?\s*(\d{1,4})\s*([,.])\s*(\d{2})$/);
+    if (/^\d{8,14}$/.test(word.text) || DATE_NOISE_RE.test(word.text) || WEIGHT_MEASURE_RE.test(word.text)) {
+      DATE_NOISE_RE.lastIndex = 0;
+      WEIGHT_MEASURE_RE.lastIndex = 0;
+      continue;
+    }
+    DATE_NOISE_RE.lastIndex = 0;
+    WEIGHT_MEASURE_RE.lastIndex = 0;
+
+    const normalizedWord = normalizePriceTokenDigits(word.text);
+    const match = normalizedWord.match(/^R?\$?\s*(\d{1,4})\s*([,.])\s*(\d{2})$/i);
     if (!match) continue;
     const value = parseFloat(`${match[1]}.${match[3]}`);
     if (!Number.isFinite(value) || value <= 0 || value > 9999.99) continue;
@@ -237,6 +380,7 @@ function extractMainPrice(annotatedLines, wordRecords, imageWidth, imageHeight) 
 
     let score = word.bbox.hasBbox ? word.bbox.height * 10 : 50;
     if (match[2] === ',') score += 30;
+    if (/R\$/i.test(normalizedWord)) score += 25;
     if (imageWidth > 0 && word.bbox.hasBbox && word.bbox.x0 >= imageWidth * 0.35) score += 20;
     if (imageHeight > 0 && word.bbox.hasBbox && word.bbox.y0 >= imageHeight * 0.25) score += 10;
 
@@ -249,26 +393,30 @@ function extractMainPrice(annotatedLines, wordRecords, imageWidth, imageHeight) 
   }
 
   const sortedWords = [...wordRecords]
-    .filter((w) => w.bbox.hasBbox)
+    .filter((w) => w.bbox.hasBbox && !/^\d{5,14}$/.test(w.text))
     .sort((a, b) => a.bbox.y0 - b.bbox.y0 || a.bbox.x0 - b.bbox.x0);
 
   for (let i = 0; i < sortedWords.length; i += 1) {
     const first = sortedWords[i];
-    const intMatch = first.text.match(/^R?\$?\s*(\d{1,4})[,.]?$/);
+    const firstNorm = normalizePriceTokenDigits(first.text);
+    const intMatch = firstNorm.match(/^R?\$?\s*(\d{1,4})[,.]?$/i);
     if (!intMatch) continue;
 
     for (let j = i + 1; j < sortedWords.length; j += 1) {
       const second = sortedWords[j];
-      const verticalDiff = Math.abs(
+      const secondNorm = normalizePriceTokenDigits(second.text);
+      const centerDiff = Math.abs(
         (first.bbox.y0 + first.bbox.y1) / 2 - (second.bbox.y0 + second.bbox.y1) / 2
       );
+      const topDiff = Math.abs(first.bbox.y0 - second.bbox.y0);
       const maxH = Math.max(first.bbox.height, second.bbox.height, 12);
-      if (verticalDiff > maxH * 0.75) continue;
+      const isSuperscriptAligned = topDiff <= maxH * 0.45 && second.bbox.y1 <= first.bbox.y1 + 6;
+      if (centerDiff > maxH * 0.75 && !isSuperscriptAligned) continue;
 
       const horizontalGap = second.bbox.x0 - first.bbox.x1;
       if (horizontalGap < -8 || horizontalGap > maxH * 1.4) continue;
 
-      let centsMatch = second.text.match(/^([,.])?\s*(\d{2})$/);
+      let centsMatch = secondNorm.match(/^([,.])?\s*(\d{2})$/);
       let combinedRaw = `${first.text} ${second.text}`;
       let combinedBbox = {
         x0: Math.min(first.bbox.x0, second.bbox.x0),
@@ -280,9 +428,10 @@ function extractMainPrice(annotatedLines, wordRecords, imageWidth, imageHeight) 
         hasBbox: true,
       };
 
-      if (!centsMatch && /^[,.]$/.test(second.text) && j + 1 < sortedWords.length) {
+      if (!centsMatch && /^[,.]$/.test(secondNorm) && j + 1 < sortedWords.length) {
         const third = sortedWords[j + 1];
-        const thirdMatch = third.text.match(/^(\d{2})$/);
+        const thirdNorm = normalizePriceTokenDigits(third.text);
+        const thirdMatch = thirdNorm.match(/^(\d{2})$/);
         if (thirdMatch && third.bbox.x0 - second.bbox.x1 <= maxH * 0.9) {
           centsMatch = [third.text, second.text, thirdMatch[1]];
           combinedRaw = `${first.text}${second.text}${third.text}`;
@@ -292,8 +441,16 @@ function extractMainPrice(annotatedLines, wordRecords, imageWidth, imageHeight) 
       }
 
       if (!centsMatch) continue;
-      const hasSeparator = Boolean(centsMatch[1]) || /[,.]$/.test(first.text);
-      if (!hasSeparator && combinedBbox.height < (maxWordHeight || 40) * 0.6) continue;
+      const hasSeparator = Boolean(centsMatch[1]) || /[,.]$/.test(firstNorm);
+      const hasCurrencyPrefix = /R\$/i.test(firstNorm);
+      if (
+        !hasSeparator &&
+        !hasCurrencyPrefix &&
+        !isSuperscriptAligned &&
+        combinedBbox.height < (maxWordHeight || 40) * 0.6
+      ) {
+        continue;
+      }
 
       const value = parseFloat(`${intMatch[1]}.${centsMatch[2]}`);
       if (!Number.isFinite(value) || value <= 0 || value > 9999.99) continue;
@@ -301,6 +458,7 @@ function extractMainPrice(annotatedLines, wordRecords, imageWidth, imageHeight) 
 
       let score = combinedBbox.height * 10;
       if (combinedRaw.includes(',')) score += 30;
+      if (hasCurrencyPrefix) score += 25;
       if (imageWidth > 0 && combinedBbox.x0 >= imageWidth * 0.35) score += 20;
 
       candidates.push({
@@ -314,11 +472,11 @@ function extractMainPrice(annotatedLines, wordRecords, imageWidth, imageHeight) 
 
   for (const line of annotatedLines) {
     if (line.flags.tax || line.flags.refPrice || line.flags.meta) continue;
-    const cleanedLine = line.text.replace(/\b\d{7,}\b/g, ' ');
-    const regex = /(?:\b|^)R?\$?\s*(\d{1,4})\s*([,.])\s*(\d{2})(?!\d)/g;
+    const cleanedLine = normalizePriceTokenDigits(stripNonPricePatterns(line.text));
+    const regex = /(?:\b|^)(R\$\s*)?(\d{1,4})\s*([,.])\s*(\d{2})(?!\d)/gi;
     let match;
     while ((match = regex.exec(cleanedLine)) !== null) {
-      const value = parseFloat(`${match[1]}.${match[3]}`);
+      const value = parseFloat(`${match[2]}.${match[4]}`);
       if (!Number.isFinite(value) || value <= 0 || value > 9999.99) continue;
 
       const isBarcodeLineWithoutGiantHeight =
@@ -327,7 +485,8 @@ function extractMainPrice(annotatedLines, wordRecords, imageWidth, imageHeight) 
       if (isBarcodeLineWithoutGiantHeight) continue;
 
       let score = line.bbox.hasBbox ? line.bbox.height * 8 : 40;
-      if (match[2] === ',') score += 25;
+      if (match[3] === ',') score += 25;
+      if (match[1]) score += 25;
       if (imageWidth > 0 && line.bbox.hasBbox && line.bbox.x0 >= imageWidth * 0.3) score += 10;
       if (!line.bbox.hasBbox) {
         score += Math.min(20, line.index * 2);
@@ -340,10 +499,24 @@ function extractMainPrice(annotatedLines, wordRecords, imageWidth, imageHeight) 
         bbox: line.bbox,
       });
     }
+
+    const sepRegex = /\bR\$\s*(\d{1,3})\s+(\d{2})(?!\d|[,.])/gi;
+    let sepMatch;
+    while ((sepMatch = sepRegex.exec(cleanedLine)) !== null) {
+      const value = parseFloat(`${sepMatch[1]}.${sepMatch[2]}`);
+      if (!Number.isFinite(value) || value <= 0 || value > 999.99) continue;
+      let score = line.bbox.hasBbox ? line.bbox.height * 8 : 45;
+      candidates.push({
+        value,
+        raw: sepMatch[0],
+        score,
+        bbox: line.bbox,
+      });
+    }
   }
 
   if (candidates.length === 0) {
-    return { price: 0, priceLineIndex: -1, priceRaw: '' };
+    return { price: 0, priceLineIndex: -1, priceRaw: '', candidates: [] };
   }
 
   candidates.sort((a, b) => b.score - a.score);
@@ -361,6 +534,7 @@ function extractMainPrice(annotatedLines, wordRecords, imageWidth, imageHeight) 
     price: winner.value,
     priceLineIndex,
     priceRaw: winner.raw,
+    candidates,
   };
 }
 
@@ -370,7 +544,6 @@ function normalizeMeasureSuffix(name) {
   const lastIdx = tokens.length - 1;
   const last = tokens[lastIdx];
 
-  // Fix OCR slashed-zero/condensed unit suffix at end of product name (e.g. "SOONL" -> "500ML", "2OOG" -> "200G")
   const m = last.match(/^([0-9SOQDIZB]{2,4})(ML|NL|HL|KG|GR|G)$/i);
   if (m) {
     const numRaw = m[1]
@@ -396,6 +569,9 @@ function cleanProductNameText(text, priceRaw) {
     cleaned = cleaned.replace(priceRaw, ' ');
   }
   cleaned = cleaned
+    .replace(DATE_NOISE_RE, ' ')
+    .replace(BARCODE_SEQUENCE_RE, ' ')
+    .replace(/\b(ATACADO|ATAC\.?|VAREJO|VAR\.?|A\s*PARTIR\s*DE\s*\d*\s*(?:UN|UNID|PCT|CX)?)\b/gi, ' ')
     .replace(/R\$\s*\d{1,4}\s*[,.]\s*\d{2}/gi, ' ')
     .replace(/(?:^|\s)\d{1,4}[,.]\d{2}(?=\s|$)/g, ' ')
     .replace(/(?:^|\s)R\$(?=\s|$)/gi, ' ')
@@ -413,6 +589,12 @@ function extractProductName(annotatedLines, imageHeight, priceRaw) {
 
   for (const line of annotatedLines) {
     if (line.flags.isAnyNoise) continue;
+    if (
+      (line.flags.isWholesaleLine || line.flags.isRetailLine) &&
+      extractAllPricesFromLineText(line.text).length > 0
+    ) {
+      continue;
+    }
 
     const cleaned = cleanProductNameText(line.text, priceRaw);
     if (cleaned.length < 3) continue;
@@ -423,7 +605,7 @@ function extractProductName(annotatedLines, imageHeight, priceRaw) {
     const alphaRatio = letters.length / cleaned.replace(/\s+/g, '').length;
     if (alphaRatio < 0.45) continue;
 
-    if (/^(R\$|KG|UN|PCT)$/i.test(cleaned)) continue;
+    if (/^(R\$|KG|UN|PCT|ATACADO|VAREJO)$/i.test(cleaned)) continue;
 
     const wordCount = cleaned.split(/\s+/).filter((w) => w.length >= 2).length;
     let score = 0;
@@ -560,20 +742,27 @@ export function parseShelfLabel(ocrPayload) {
     Number(ocrPayload?.imageHeight) ||
     annotatedLines.reduce((max, l) => Math.max(max, l.bbox.y1), 0);
 
-  const { price: fullPrice, priceLineIndex, priceRaw } = extractMainPrice(
-    annotatedLines,
-    wordRecords,
-    imageWidth,
-    imageHeight
-  );
+  const {
+    price: fullPrice,
+    priceLineIndex,
+    priceRaw,
+    candidates,
+  } = extractMainPrice(annotatedLines, wordRecords, imageWidth, imageHeight);
 
-  // Dedicated giant-price crop wins if valid
   const giantPriceVal = ocrPayload?.giantPriceText
     ? parsePriceString(ocrPayload.giantPriceText)
     : 0;
-  const price = giantPriceVal > 0 ? giantPriceVal : fullPrice;
+  const primaryPrice = giantPriceVal > 0 ? giantPriceVal : fullPrice;
 
-  // Dedicated title crop wins if valid & cleaner
+  const { retailPrice, wholesalePrice } = extractRetailAndWholesalePrices(
+    annotatedLines,
+    primaryPrice,
+    candidates
+  );
+
+  // Default to Varejo price when available, otherwise primaryPrice
+  const price = retailPrice > 0 ? retailPrice : primaryPrice;
+
   let name = extractProductName(annotatedLines, imageHeight, priceRaw);
   if (ocrPayload?.titleText) {
     const cleanedTitle = cleanProductNameText(ocrPayload.titleText, priceRaw);
@@ -605,6 +794,8 @@ export function parseShelfLabel(ocrPayload) {
   return {
     name,
     price,
+    retailPrice: retailPrice > 0 ? retailPrice : price,
+    wholesalePrice: wholesalePrice > 0 ? wholesalePrice : 0,
     unit,
     category,
     rawText: String(ocrPayload?.text || ''),

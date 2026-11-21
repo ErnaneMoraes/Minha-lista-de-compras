@@ -3,6 +3,7 @@ import { Modal, View, Text } from 'react-native';
 import ModalStyle from '../../StyleSheet/ModalStyle';
 import CancelButton from '../../common/Buttons/CancelButton';
 import DeleteButton from '../../common/Buttons/DeleteButton';
+import { useAppSettings } from '../../../src/context/AppSettingsContext';
 
 export default function ConfirmModal({
   visible,
@@ -12,6 +13,8 @@ export default function ConfirmModal({
   onCancel,
   onConfirm,
 }) {
+  const { colors } = useAppSettings();
+
   return (
     <Modal
       animationType="fade"
@@ -20,9 +23,27 @@ export default function ConfirmModal({
       onRequestClose={onCancel}
     >
       <View style={ModalStyle.modalCenteredView}>
-        <View style={ModalStyle.modalView}>
-          <Text style={ModalStyle.modalTitle}>{title}</Text>
-          <Text style={[ModalStyle.modalText, { marginBottom: 20 }]}>{message}</Text>
+        <View
+          style={[
+            ModalStyle.modalView,
+            {
+              backgroundColor: colors.card,
+              borderColor: colors.borderColor,
+              borderWidth: 1,
+            },
+          ]}
+        >
+          <Text style={[ModalStyle.modalTitle, { color: colors.textoEscuro }]}>
+            {title}
+          </Text>
+          <Text
+            style={[
+              ModalStyle.modalText,
+              { marginBottom: 20, color: colors.textoEscuro },
+            ]}
+          >
+            {message}
+          </Text>
           <View style={ModalStyle.modalButtonContainer}>
             <CancelButton onPress={onCancel} style={ModalStyle.modalButton} />
             <DeleteButton

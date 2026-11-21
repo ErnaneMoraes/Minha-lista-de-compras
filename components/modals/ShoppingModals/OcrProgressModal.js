@@ -1,8 +1,8 @@
 import React from 'react';
 import { Modal, View, Text, ActivityIndicator, Image, StyleSheet } from 'react-native';
-import { AppColors } from '../../StyleSheet/Colors';
 import ModalStyle from '../../StyleSheet/ModalStyle';
 import CancelButton from '../../common/Buttons/CancelButton';
+import { useAppSettings } from '../../../src/context/AppSettingsContext';
 
 export default function OcrProgressModal({
   visible,
@@ -10,6 +10,7 @@ export default function OcrProgressModal({
   progress = 0,
   onCancel,
 }) {
+  const { colors } = useAppSettings();
   const pct = Math.max(0, Math.min(100, Math.round((Number(progress) || 0) * 100)));
 
   return (
@@ -20,24 +21,35 @@ export default function OcrProgressModal({
       onRequestClose={onCancel}
     >
       <View style={ModalStyle.modalCenteredView}>
-        <View style={ModalStyle.modalView}>
-          <Text style={ModalStyle.modalTitle}>Analisando etiqueta...</Text>
+        <View
+          style={[
+            ModalStyle.modalView,
+            {
+              backgroundColor: colors.card,
+              borderColor: colors.borderColor,
+              borderWidth: 1,
+            },
+          ]}
+        >
+          <Text style={[ModalStyle.modalTitle, { color: colors.textoEscuro }]}>
+            Analisando etiqueta...
+          </Text>
 
           {imageUri ? (
             <Image
               source={{ uri: imageUri }}
-              style={localStyles.preview}
+              style={[localStyles.preview, { backgroundColor: colors.surfaceMuted }]}
               resizeMode="contain"
             />
           ) : null}
 
           <ActivityIndicator
             size="large"
-            color={AppColors.principal}
+            color={colors.principal}
             style={{ marginVertical: 14 }}
           />
 
-          <Text style={localStyles.statusText}>
+          <Text style={[localStyles.statusText, { color: colors.textMuted }]}>
             {pct > 0
               ? `Lendo nome, preço e unidade (${pct}%)...`
               : 'Preparando imagem da etiqueta...'}
@@ -57,12 +69,10 @@ const localStyles = StyleSheet.create({
     width: '100%',
     height: 120,
     borderRadius: 10,
-    backgroundColor: AppColors.surfaceMuted,
     marginBottom: 8,
   },
   statusText: {
     fontSize: 14,
-    color: AppColors.textMuted,
     textAlign: 'center',
     marginBottom: 16,
   },
