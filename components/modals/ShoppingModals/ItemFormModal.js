@@ -21,6 +21,10 @@ import {
   maskBRLInput,
   parseBRLInput,
   numberToBRLMask,
+  normalizeCategoryName,
+  inferCategorySmart,
+  learnCategoryAssociation,
+  loadLearnedCategories,
 } from '../../../src/storage/shoppingStorage';
 
 export default function ItemFormModal({
@@ -28,6 +32,8 @@ export default function ItemFormModal({
   initialItem = null,
   mode = 'edit',
   ocrHint = '',
+  requirePrice = true,
+  customTitle = null,
   onClose,
   onSubmit,
 }) {
@@ -36,9 +42,14 @@ export default function ItemFormModal({
   const [quantity, setQuantity] = useState('1');
   const [unit, setUnit] = useState('un');
   const [category, setCategory] = useState('Outros');
+  const [hasManualCategory, setHasManualCategory] = useState(false);
   const [priceMasked, setPriceMasked] = useState('');
   const [description, setDescription] = useState('');
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    loadLearnedCategories();
+  }, []);
 
   useEffect(() => {
     if (visible) {
@@ -50,10 +61,20 @@ export default function ItemFormModal({
               ? Number(initialItem.retailPrice)
               : Number(initialItem.wholesalePrice) || 0;
 
-        setName(initialItem.name || '');
+        const initName = initialItem.name || '';
+        const rawCat = initialItem.category
+          ? normalizeCategoryName(initialItem.category)
+          : 'Outros';
+        const smartCat =
+          rawCat === 'Outros' && initName
+            ? inferCategorySmart(initName) || 'Outros'
+            : rawCat;
+
+        setName(initName);
         setQuantity(String(initialItem.quantity ?? 1));
         setUnit(initialItem.unit || 'un');
-        setCategory(initialItem.category || 'Outros');
+        setCategory(smartCat);
+        setHasManualCategory(Boolean(initialItem.id && smartCat !== 'Outros'));
         setPriceMasked(numberToBRLMask(basePrice));
         setDescription(initialItem.description ?? initialItem.notes ?? '');
       } else {
@@ -61,12 +82,31 @@ export default function ItemFormModal({
         setQuantity('1');
         setUnit('un');
         setCategory('Outros');
+        setHasManualCategory(false);
         setPriceMasked('');
         setDescription('');
       }
       setError('');
     }
   }, [visible, initialItem]);
+
+  const handleNameChange = (text) => {
+    setName(text);
+    if (error) setError('');
+    if (!hasManualCategory) {
+      const suggested = inferCategorySmart(text);
+      if (suggested) {
+        setCategory(suggested);
+      } else if (!text.trim()) {
+        setCategory('Outros');
+      }
+    }
+  };
+
+  const handleSelectCategory = (cat) => {
+    setCategory(cat);
+    setHasManualCategory(true);
+  };
 
   const handlePriceChange = (text) => {
     const masked = maskBRLInput(text);
@@ -81,15 +121,15 @@ export default function ItemFormModal({
     if (error) setError('');
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const trimmedName = name.trim();
     if (!trimmedName) {
       setError('Informe o nome do produto.');
       return;
     }
 
-    const parsedPrice = parseBRLInput(priceMasked);
-    if (parsedPrice <= 0) {
+    const parsedPrice = requirePrice ? parseBRLInput(priceMasked) : 0;
+    if (requirePrice && parsedPrice <= 0) {
       setError('Informe o preço unitário em Real (maior que R$ 0,00).');
       return;
     }
@@ -100,18 +140,24 @@ export default function ItemFormModal({
       return;
     }
 
+    const finalCategory = normalizeCategoryName(category);
+    await learnCategoryAssociation(trimmedName, finalCategory);
+
     setError('');
     onSubmit({
       name: trimmedName,
       quantity: parsedQty,
       unit,
-      category,
+      category: finalCategory,
       price: parsedPrice,
       description: description.trim(),
+      notes: description.trim(),
+      sourceReminderId: initialItem?.sourceReminderId || null,
     });
   };
 
-  const modalTitle = mode === 'manual' ? 'Adicionar Produto' : 'Editar Item';
+  const modalTitle =
+    customTitle || (mode === 'manual' ? 'Adicionar Produto' : 'Editar Item');
   const inputThemeStyle = {
     backgroundColor: colors.inputBackground,
     borderColor: colors.borderColor,
@@ -169,42 +215,129 @@ export default function ItemFormModal({
 
           <ScrollView
             style={{ width: '100%' }}
+            contentContainerStyle={{ paddingBottom: 10 }}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
             <View style={ModalStyle.modalInputContainer}>
-              <Text style={[ModalStyle.modalLabel, { color: colors.textoEscuro }]}>
+              <Text
+                style={[ModalStyle.modalLabel, { color: colors.textoEscuro }]}
+                numberOfLines={1}
+              >
                 Nome do produto *
               </Text>
               <TextInput
                 style={[globalStyles.input, inputThemeStyle]}
-                placeholder="Ex: Leite de Coco 500ml, Arroz..."
+                placeholder="Ex: Dipirona, Leite, Sabonete, Arroz..."
                 placeholderTextColor={colors.textMuted}
                 value={name}
-                onChangeText={(text) => {
-                  setName(text);
-                  if (error) setError('');
-                }}
+                onChangeText={handleNameChange}
               />
             </View>
 
-            <View style={localStyles.row}>
-              <View style={[ModalStyle.modalInputContainer, { flex: 1, marginRight: 10 }]}>
-                <Text style={[ModalStyle.modalLabel, { color: colors.textoEscuro }]}>
-                  Preço unit. (R$) *
-                </Text>
-                <TextInput
-                  style={[globalStyles.input, inputThemeStyle]}
-                  placeholder="R$ 0,00"
-                  placeholderTextColor={colors.textMuted}
-                  keyboardType="numeric"
-                  value={priceMasked}
-                  onChangeText={handlePriceChange}
-                />
-              </View>
+            {requirePrice ? (
+              <View style={localStyles.row}>
+                <View
+                  style={[
+                    ModalStyle.modalInputContainer,
+                    { flex: 1, marginRight: 10 },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      ModalStyle.modalLabel,
+                      localStyles.singleLineLabel,
+                      { color: colors.textoEscuro },
+                    ]}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
+                    Preço (R$) *
+                  </Text>
+                  <TextInput
+                    style={[globalStyles.input, inputThemeStyle]}
+                    placeholder="R$ 0,00"
+                    placeholderTextColor={colors.textMuted}
+                    keyboardType="numeric"
+                    value={priceMasked}
+                    onChangeText={handlePriceChange}
+                  />
+                </View>
 
-              <View style={[ModalStyle.modalInputContainer, { flex: 1.15 }]}>
-                <Text style={[ModalStyle.modalLabel, { color: colors.textoEscuro }]}>
+                <View style={[ModalStyle.modalInputContainer, { flex: 1.1 }]}>
+                  <Text
+                    style={[
+                      ModalStyle.modalLabel,
+                      localStyles.singleLineLabel,
+                      { color: colors.textoEscuro },
+                    ]}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
+                    Quantidade *
+                  </Text>
+                  <View
+                    style={[
+                      localStyles.qtyControlWrap,
+                      {
+                        backgroundColor: colors.inputBackground,
+                        borderColor: colors.borderColor,
+                      },
+                    ]}
+                  >
+                    <TouchableOpacity
+                      onPress={() => handleAdjustQuantity(-1)}
+                      style={[
+                        localStyles.qtyStepBtn,
+                        { backgroundColor: colors.surfaceMuted },
+                      ]}
+                      accessibilityLabel="Diminuir quantidade"
+                    >
+                      <FontAwesome6
+                        name="minus"
+                        size={13}
+                        color={colors.textoEscuro}
+                      />
+                    </TouchableOpacity>
+
+                    <TextInput
+                      style={[
+                        localStyles.qtyInput,
+                        { color: colors.textoEscuro },
+                      ]}
+                      placeholder="1"
+                      placeholderTextColor={colors.textMuted}
+                      keyboardType="decimal-pad"
+                      value={quantity}
+                      onChangeText={(text) => {
+                        setQuantity(text);
+                        if (error) setError('');
+                      }}
+                    />
+
+                    <TouchableOpacity
+                      onPress={() => handleAdjustQuantity(1)}
+                      style={[
+                        localStyles.qtyStepBtn,
+                        { backgroundColor: colors.verdeSuave },
+                      ]}
+                      accessibilityLabel="Aumentar quantidade"
+                    >
+                      <FontAwesome6
+                        name="plus"
+                        size={13}
+                        color={colors.principal}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            ) : (
+              <View style={ModalStyle.modalInputContainer}>
+                <Text
+                  style={[ModalStyle.modalLabel, { color: colors.textoEscuro }]}
+                  numberOfLines={1}
+                >
                   Quantidade *
                 </Text>
                 <View
@@ -262,7 +395,7 @@ export default function ItemFormModal({
                   </TouchableOpacity>
                 </View>
               </View>
-            </View>
+            )}
 
             <View style={ModalStyle.modalInputContainer}>
               <Text style={[ModalStyle.modalLabel, { color: colors.textoEscuro }]}>
@@ -319,7 +452,7 @@ export default function ItemFormModal({
                   return (
                     <TouchableOpacity
                       key={cat}
-                      onPress={() => setCategory(cat)}
+                      onPress={() => handleSelectCategory(cat)}
                       style={[
                         localStyles.chip,
                         {
@@ -383,7 +516,12 @@ export default function ItemFormModal({
 const localStyles = StyleSheet.create({
   row: {
     flexDirection: 'row',
+    alignItems: 'flex-end',
     width: '100%',
+  },
+  singleLineLabel: {
+    fontSize: 15,
+    marginBottom: 6,
   },
   ocrBanner: {
     width: '100%',

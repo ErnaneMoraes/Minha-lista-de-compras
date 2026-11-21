@@ -1,3 +1,8 @@
+import {
+  inferCategorySmart,
+  normalizeCategoryName,
+} from '../utils/categoryDictionary';
+
 const TAX_KEYWORDS_RE = /\b(IBPT|TRIB|TRIBUT|TRIBUTOS|APROX|VL\.?\s*APROX|IMPOSTO)\b/i;
 const TAX_HEX_RE = /(?:^|[\s-])-[\s]*[0-9A-F]{5,8}\b/i;
 const REFERENCE_PRICE_RE =
@@ -680,64 +685,11 @@ export function detectUnitFromCleanText(nameText, cleanPriceAreaText) {
 }
 
 export function inferCategoryFromName(name) {
-  const lower = String(name || '').toLowerCase();
-  if (!lower) return 'Outros';
-
-  if (/leite\s*(de\s*)?coco/.test(lower)) return 'Mercearia';
-
-  if (
-    /\b(banana|ma[cç][aã]|tomate|batata|cebola|alho|alface|laranja|lim[aã]o|uva|mam[aã]o|abacate|cenoura|fruta|verdura|legume|melancia|abacaxi|manga)\b/.test(
-      lower
-    )
-  ) {
-    return 'Hortifruti';
+  if (!name) return 'Outros';
+  const smartMatch = inferCategorySmart(name);
+  if (smartMatch) {
+    return normalizeCategoryName(smartMatch);
   }
-  if (
-    /\b(leite|queijo|mussarela|mu[cç]arela|iogurte|manteiga|requeij[aã]o|creme\s+de\s+leite|leite\s+condensado|nata)\b/.test(
-      lower
-    )
-  ) {
-    return 'Laticínios';
-  }
-  if (
-    /\b(carne|frango|peito|coxa|alcatra|patinho|ac[eé]m|bisteca|lingui[cç]a|peixe|til[aá]pia|salm[aã]o|bacon|presunto|bovina|su[ií]na)\b/.test(
-      lower
-    )
-  ) {
-    return 'Carnes';
-  }
-  if (/\b(p[aã]o|bolo|biscoito|bolacha|torrada|croissant|rosca|panetone)\b/.test(lower)) {
-    return 'Padaria';
-  }
-  if (
-    /\b(refrigerante|suco|cerveja|[aá]gua|vinho|energ[eé]tico|ch[aá]|caf[eé]|guaran[aá]|coca)\b/.test(
-      lower
-    )
-  ) {
-    return 'Bebidas';
-  }
-  if (
-    /\b(detergente|sab[aã]o|amaciante|[aá]gua\s+sanit[aá]ria|desinfetante|esponja|alvejante|multiuso|limpador)\b/.test(
-      lower
-    )
-  ) {
-    return 'Limpeza';
-  }
-  if (
-    /\b(shampoo|xampu|condicionador|sabonete|creme\s+dental|pasta\s+de\s+dente|papel\s+higi[eê]nico|desodorante|escova)\b/.test(
-      lower
-    )
-  ) {
-    return 'Higiene';
-  }
-  if (
-    /\b(arroz|feij[aã]o|macarr[aã]o|a[cç][uú]car|[oó]leo|azeite|farinha|sal|molho|milho|ervilha|atum|sardinha|extrato|coco)\b/.test(
-      lower
-    )
-  ) {
-    return 'Mercearia';
-  }
-
   return 'Outros';
 }
 

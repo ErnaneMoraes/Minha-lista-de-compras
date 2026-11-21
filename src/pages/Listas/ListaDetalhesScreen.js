@@ -5,6 +5,7 @@ import {
   TextInput,
   TouchableOpacity,
   FlatList,
+  ScrollView,
   StyleSheet,
   ActivityIndicator,
   Platform,
@@ -35,14 +36,15 @@ import {
   calculateListStats,
   formatCurrency,
   formatListDateLabel,
+  loadReminderLists,
+  normalizeCategoryName,
 } from '../../storage/shoppingStorage';
 
 export default function ListaDetalhesScreen({ route, navigation }) {
   const listId = route?.params?.listId;
   const insets = useSafeAreaInsets();
   const bottomPad = Math.max(7, insets.bottom);
-  const { colors, openSettings, cameraCaptureMode, dataVersion } =
-    useAppSettings();
+  const { colors, openSettings, dataVersion } = useAppSettings();
 
   const [list, setList] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -59,12 +61,20 @@ export default function ListaDetalhesScreen({ route, navigation }) {
 
   const [isBudgetModalVisible, setIsBudgetModalVisible] = useState(false);
   const [showFinalizeConfirm, setShowFinalizeConfirm] = useState(false);
+  const [showReopenConfirm, setShowReopenConfirm] = useState(false);
 
   const [isOcrRunning, setIsOcrRunning] = useState(false);
   const [ocrProgress, setOcrProgress] = useState(0);
   const [ocrImageUri, setOcrImageUri] = useState(null);
   const ocrCancelledRef = useRef(false);
   const [pendingPriceChoice, setPendingPriceChoice] = useState(null);
+
+  // Import from Reminder Lists states
+  const [isImportModalVisible, setIsImportModalVisible] = useState(false);
+  const [reminderLists, setReminderLists] = useState([]);
+  const [selectedReminderList, setSelectedReminderList] = useState(null);
+  const [activeReminderActionItem, setActiveReminderActionItem] = useState(null);
+  const pendingReminderForCameraRef = useRef(null);
 
   const loadList = useCallback(async () => {
     if (!listId) {
@@ -87,15 +97,16 @@ export default function ListaDetalhesScreen({ route, navigation }) {
     return unsubscribe;
   }, [navigation, loadList, dataVersion]);
 
-  const handleReopenList = useCallback(async () => {
+  const handleConfirmReopenList = useCallback(async () => {
     if (!list) return;
     const updated = await reopenList(list.id);
     if (updated) {
       setList(updated);
     }
+    setShowReopenConfirm(false);
   }, [list]);
 
-  // Configure top header: smart truncated title + subtle date, Edit, Finalize/Reopen, Settings
+  // Configure top header: responsive on narrow screens so right buttons never overflow
   useEffect(() => {
     if (!list) return;
     const isCompleted = Boolean(list.completed);
@@ -103,22 +114,39 @@ export default function ListaDetalhesScreen({ route, navigation }) {
     navigation.setOptions({
       title: list.name,
       headerTitleAlign: 'left',
+      headerLeftContainerStyle: {
+        paddingLeft: 2,
+        marginRight: 0,
+      },
       headerTitleContainerStyle: {
         flex: 1,
-        marginRight: 4,
+        minWidth: 0,
+        marginHorizontal: 0,
+        paddingRight: 4,
+      },
+      headerRightContainerStyle: {
+        flexShrink: 0,
+        paddingRight: 4,
       },
       headerTitle: () => (
         <View style={localStyles.headerTitleWrap}>
           <Text
-            style={[localStyles.headerTitleName, { color: colors.textoPrincipal }]}
+            style={[
+              localStyles.headerTitleName,
+              { color: colors.textoPrincipal },
+            ]}
             numberOfLines={1}
             ellipsizeMode="tail"
           >
             {list.name}
           </Text>
           <Text
-            style={[localStyles.headerTitleDate, { color: colors.textoPrincipal }]}
+            style={[
+              localStyles.headerTitleDate,
+              { color: colors.textoPrincipal },
+            ]}
             numberOfLines={1}
+            ellipsizeMode="tail"
           >
             {formatListDateLabel(list)}
           </Text>
@@ -134,7 +162,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
             >
               <FontAwesome6
                 name="pen-to-square"
-                size={17}
+                size={16}
                 color={colors.textoPrincipal}
               />
             </TouchableOpacity>
@@ -148,7 +176,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
             >
               <FontAwesome6
                 name="circle-check"
-                size={13}
+                size={12}
                 color={colors.primary}
               />
               <Text
@@ -156,19 +184,20 @@ export default function ListaDetalhesScreen({ route, navigation }) {
                   localStyles.headerFinalizeChipText,
                   { color: colors.primary },
                 ]}
+                numberOfLines={1}
               >
                 Finalizar
               </Text>
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
-              onPress={handleReopenList}
+              onPress={() => setShowReopenConfirm(true)}
               style={localStyles.headerReopenChip}
               accessibilityLabel="Reabrir Lista para Editar"
             >
               <FontAwesome6
                 name="lock-open"
-                size={12}
+                size={11}
                 color={colors.textoPrincipal}
               />
               <Text
@@ -176,6 +205,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
                   localStyles.headerFinalizeChipText,
                   { color: colors.textoPrincipal },
                 ]}
+                numberOfLines={1}
               >
                 Reabrir
               </Text>
@@ -189,14 +219,14 @@ export default function ListaDetalhesScreen({ route, navigation }) {
           >
             <FontAwesome6
               name="gear"
-              size={18}
+              size={17}
               color={colors.textoPrincipal}
             />
           </TouchableOpacity>
         </View>
       ),
     });
-  }, [list, colors, navigation, openSettings, handleReopenList]);
+  }, [list, colors, navigation, openSettings]);
 
   const processLabelImage = async ({ uri, base64 }) => {
     if (!uri) return;
@@ -205,6 +235,9 @@ export default function ListaDetalhesScreen({ route, navigation }) {
     setOcrProgress(0);
     setIsOcrRunning(true);
     setBanner(null);
+
+    const reminderTemplate = pendingReminderForCameraRef.current;
+    pendingReminderForCameraRef.current = null;
 
     const extracted = await recognizeShelfLabel({ uri, base64 }, (prog) => {
       if (!ocrCancelledRef.current) {
@@ -221,19 +254,38 @@ export default function ListaDetalhesScreen({ route, navigation }) {
       ? extracted.detectedPrices.filter((p) => Number(p) > 0)
       : [];
 
-    const draftItem = {
-      name: extracted.name || '',
-      price:
-        detectedPrices.length > 0
-          ? detectedPrices[0]
-          : extracted.price > 0
-            ? extracted.price
-            : 0,
-      quantity: 1,
-      unit: extracted.unit || 'un',
-      category: extracted.category || 'Outros',
-      description: '',
-    };
+    const draftItem = reminderTemplate
+      ? {
+          name: reminderTemplate.name || extracted.name || '',
+          price:
+            detectedPrices.length > 0
+              ? detectedPrices[0]
+              : extracted.price > 0
+                ? extracted.price
+                : 0,
+          quantity: Number(reminderTemplate.quantity) || 1,
+          unit: reminderTemplate.unit || extracted.unit || 'un',
+          category: normalizeCategoryName(
+            reminderTemplate.category || extracted.category || 'Outros'
+          ),
+          description:
+            reminderTemplate.notes ?? reminderTemplate.description ?? '',
+          sourceReminderId: reminderTemplate.id || null,
+        }
+      : {
+          name: extracted.name || '',
+          price:
+            detectedPrices.length > 0
+              ? detectedPrices[0]
+              : extracted.price > 0
+                ? extracted.price
+                : 0,
+          quantity: 1,
+          unit: extracted.unit || 'un',
+          category: normalizeCategoryName(extracted.category || 'Outros'),
+          description: '',
+          sourceReminderId: null,
+        };
 
     if (detectedPrices.length >= 2) {
       setPendingPriceChoice({
@@ -292,9 +344,12 @@ export default function ListaDetalhesScreen({ route, navigation }) {
     input.click();
   };
 
-  const handleCameraPress = async () => {
+  const handleCameraPress = async (reminderTemplate = null) => {
     if (list?.completed) return;
+    pendingReminderForCameraRef.current =
+      reminderTemplate && reminderTemplate.name ? reminderTemplate : null;
     setBanner(null);
+
     if (Platform.OS === 'web') {
       handleOpenWebCamera();
       return;
@@ -303,6 +358,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
     try {
       const perm = await ImagePicker.requestCameraPermissionsAsync();
       if (!perm.granted) {
+        pendingReminderForCameraRef.current = null;
         setBanner({
           type: 'error',
           text: 'Permissão da câmera negada nas configurações do aparelho.',
@@ -317,6 +373,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
       });
 
       if (result.canceled || !result.assets || !result.assets[0]) {
+        pendingReminderForCameraRef.current = null;
         return;
       }
 
@@ -365,6 +422,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
 
   const handleOpenManualAdd = () => {
     if (list?.completed) return;
+    pendingReminderForCameraRef.current = null;
     setEditingItem(null);
     setOcrHint('');
     setModalMode('manual');
@@ -385,7 +443,11 @@ export default function ListaDetalhesScreen({ route, navigation }) {
     if (modalMode === 'edit' && editingItem?.id) {
       updated = await updateItemInList(list.id, editingItem.id, itemData);
     } else {
-      updated = await addItemToList(list.id, itemData);
+      updated = await addItemToList(list.id, {
+        ...itemData,
+        sourceReminderId:
+          itemData.sourceReminderId || editingItem?.sourceReminderId || null,
+      });
     }
     if (updated) {
       setList(updated);
@@ -437,6 +499,45 @@ export default function ListaDetalhesScreen({ route, navigation }) {
     setItemToDelete(null);
   };
 
+  // ==========================================
+  // IMPORT FROM REMINDERS HANDLERS
+  // ==========================================
+
+  const handleOpenImportModal = async () => {
+    if (!list || list.completed) return;
+    const loadedReminders = await loadReminderLists();
+    setReminderLists(loadedReminders);
+    setSelectedReminderList(null);
+    setActiveReminderActionItem(null);
+    setIsImportModalVisible(true);
+  };
+
+  const handleChooseReminderManual = (remItem) => {
+    setActiveReminderActionItem(null);
+    setIsImportModalVisible(false);
+    setSelectedReminderList(null);
+
+    setEditingItem({
+      name: remItem.name || '',
+      quantity: Number(remItem.quantity) || 1,
+      unit: remItem.unit || 'un',
+      category: normalizeCategoryName(remItem.category || 'Outros'),
+      price: 0,
+      description: remItem.notes ?? remItem.description ?? '',
+      sourceReminderId: remItem.id,
+    });
+    setOcrHint('');
+    setModalMode('manual');
+    setIsItemModalVisible(true);
+  };
+
+  const handleChooseReminderCamera = (remItem) => {
+    setActiveReminderActionItem(null);
+    setIsImportModalVisible(false);
+    setSelectedReminderList(null);
+    handleCameraPress(remItem);
+  };
+
   const stats = useMemo(() => calculateListStats(list), [list]);
 
   if (isLoading) {
@@ -483,7 +584,10 @@ export default function ListaDetalhesScreen({ route, navigation }) {
     query ? item.name.toLowerCase().includes(query) : true
   );
 
-  // Compact two-column footer: Left (Title + Item Count), Right (Total + Discreet Budget)
+  const importedReminderIdsSet = new Set(
+    Array.isArray(list.importedReminderIds) ? list.importedReminderIds : []
+  );
+
   let totalBarBg = colors.card;
   let totalBarBorder = colors.principal;
   let totalLabelColor = colors.textoEscuro;
@@ -534,6 +638,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
       ) || 0;
     const subtotal = Math.round(qty * unitPrice * 100) / 100;
     const desc = item.description ?? item.notes ?? '';
+    const catName = normalizeCategoryName(item.category);
 
     return (
       <View
@@ -568,7 +673,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
                   { color: colors.principal },
                 ]}
               >
-                {item.category || 'Outros'}
+                {catName}
               </Text>
             </View>
             <Text style={[localStyles.itemPriceText, { color: colors.principal }]}>
@@ -604,33 +709,50 @@ export default function ListaDetalhesScreen({ route, navigation }) {
             </Text>
           </View>
         ) : (
-          <View
-            style={[
-              localStyles.quantityStepper,
-              {
-                backgroundColor: colors.surfaceMuted,
-                borderColor: colors.borderColor,
-              },
-            ]}
-          >
-            <TouchableOpacity
-              onPress={() => handleDecrement(item)}
-              style={[localStyles.stepperBtn, { backgroundColor: colors.card }]}
-              accessibilityLabel={`Diminuir quantidade de ${item.name}`}
+          <View style={localStyles.itemRightActions}>
+            <View
+              style={[
+                localStyles.quantityStepper,
+                {
+                  backgroundColor: colors.surfaceMuted,
+                  borderColor: colors.borderColor,
+                },
+              ]}
             >
-              <FontAwesome6 name="minus" size={14} color={colors.textoEscuro} />
-            </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => handleDecrement(item)}
+                style={[localStyles.stepperBtn, { backgroundColor: colors.card }]}
+                accessibilityLabel={`Diminuir quantidade de ${item.name}`}
+              >
+                <FontAwesome6 name="minus" size={13} color={colors.textoEscuro} />
+              </TouchableOpacity>
 
-            <Text style={[localStyles.stepperVal, { color: colors.textoEscuro }]}>
-              {qty}
-            </Text>
+              <Text style={[localStyles.stepperVal, { color: colors.textoEscuro }]}>
+                {qty}
+              </Text>
+
+              <TouchableOpacity
+                onPress={() => handleIncrement(item)}
+                style={[localStyles.stepperBtn, { backgroundColor: colors.card }]}
+                accessibilityLabel={`Aumentar quantidade de ${item.name}`}
+              >
+                <FontAwesome6 name="plus" size={13} color={colors.principal} />
+              </TouchableOpacity>
+            </View>
 
             <TouchableOpacity
-              onPress={() => handleIncrement(item)}
-              style={[localStyles.stepperBtn, { backgroundColor: colors.card }]}
-              accessibilityLabel={`Aumentar quantidade de ${item.name}`}
+              onPress={() => setItemToDelete(item)}
+              style={[
+                localStyles.deleteItemBtn,
+                { backgroundColor: colors.surfaceMuted },
+              ]}
+              accessibilityLabel={`Excluir ${item.name}`}
             >
-              <FontAwesome6 name="plus" size={14} color={colors.principal} />
+              <FontAwesome6
+                name="trash-can"
+                size={13}
+                color={colors.logoutRed}
+              />
             </TouchableOpacity>
           </View>
         )}
@@ -761,7 +883,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
             </Text>
             <Text style={[localStyles.emptySubtitle, { color: colors.textMuted }]}>
               {list.items.length === 0
-                ? 'Toque em "Adicionar Produto" ou use o botão da câmera para ler uma etiqueta de preço.'
+                ? 'Toque em "+ Adicionar Produto", use o botão de lembretes à esquerda ou a câmera à direita.'
                 : 'Tente limpar o filtro de busca acima.'}
             </Text>
           </View>
@@ -776,7 +898,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
         )}
       </View>
 
-      {/* Ergonomic Bottom Action Bar (hidden when list is finalized) */}
+      {/* Triple Ergonomic Bottom Action Bar: [Lembrete Icon] | [+ Adicionar Produto] | [Câmera Icon] */}
       {!isCompleted ? (
         <View
           style={[
@@ -788,6 +910,24 @@ export default function ListaDetalhesScreen({ route, navigation }) {
           ]}
         >
           <View style={[globalStyles.contentContainer, localStyles.bottomActionInner]}>
+            <TouchableOpacity
+              style={[
+                localStyles.reminderIconButton,
+                {
+                  backgroundColor: colors.verdeSuave,
+                  borderColor: colors.principal,
+                },
+              ]}
+              onPress={handleOpenImportModal}
+              accessibilityLabel="Importar item dos lembretes"
+            >
+              <FontAwesome6
+                name="clipboard-check"
+                size={18}
+                color={colors.principal}
+              />
+            </TouchableOpacity>
+
             <TouchableOpacity
               style={[
                 localStyles.manualAddButton,
@@ -815,12 +955,12 @@ export default function ListaDetalhesScreen({ route, navigation }) {
                 localStyles.cameraButton,
                 { backgroundColor: colors.verdePrincipal },
               ]}
-              onPress={handleCameraPress}
+              onPress={() => handleCameraPress(null)}
               accessibilityLabel="Fotografar etiqueta de preço"
             >
               <FontAwesome6
                 name="camera"
-                size={19}
+                size={18}
                 color={colors.textoPrincipal}
               />
             </TouchableOpacity>
@@ -895,6 +1035,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
         onClose={() => {
           setIsCameraModalVisible(false);
           setCameraInitialPhoto(null);
+          pendingReminderForCameraRef.current = null;
         }}
         onConfirmImage={handleCameraConfirmed}
       />
@@ -929,6 +1070,446 @@ export default function ListaDetalhesScreen({ route, navigation }) {
         progress={ocrProgress}
         onCancel={handleCancelOcr}
       />
+
+      {/* Modal de Importar Item dos Lembretes */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={isImportModalVisible}
+        onRequestClose={() => {
+          if (activeReminderActionItem) {
+            setActiveReminderActionItem(null);
+          } else if (selectedReminderList) {
+            setSelectedReminderList(null);
+          } else {
+            setIsImportModalVisible(false);
+          }
+        }}
+      >
+        <View style={localStyles.priceChoiceOverlay}>
+          <View
+            style={[
+              localStyles.importModalCard,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.borderColor,
+              },
+            ]}
+          >
+            <View style={localStyles.importHeaderRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                {activeReminderActionItem ? (
+                  <TouchableOpacity
+                    onPress={() => setActiveReminderActionItem(null)}
+                    style={[
+                      localStyles.importBackBtn,
+                      { backgroundColor: colors.surfaceMuted },
+                    ]}
+                  >
+                    <FontAwesome6
+                      name="arrow-left"
+                      size={13}
+                      color={colors.textoEscuro}
+                    />
+                  </TouchableOpacity>
+                ) : selectedReminderList ? (
+                  <TouchableOpacity
+                    onPress={() => setSelectedReminderList(null)}
+                    style={[
+                      localStyles.importBackBtn,
+                      { backgroundColor: colors.surfaceMuted },
+                    ]}
+                  >
+                    <FontAwesome6
+                      name="arrow-left"
+                      size={13}
+                      color={colors.textoEscuro}
+                    />
+                  </TouchableOpacity>
+                ) : (
+                  <FontAwesome6
+                    name="clipboard-check"
+                    size={18}
+                    color={colors.principal}
+                    style={{ marginRight: 9 }}
+                  />
+                )}
+                <Text
+                  style={[
+                    localStyles.importModalTitle,
+                    { color: colors.textoEscuro },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {activeReminderActionItem
+                    ? activeReminderActionItem.name
+                    : selectedReminderList
+                      ? selectedReminderList.name
+                      : 'Listas de Lembretes'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => {
+                  setActiveReminderActionItem(null);
+                  setSelectedReminderList(null);
+                  setIsImportModalVisible(false);
+                }}
+                style={[
+                  localStyles.importCloseBtn,
+                  { backgroundColor: colors.surfaceMuted },
+                ]}
+              >
+                <FontAwesome6 name="xmark" size={15} color={colors.textoEscuro} />
+              </TouchableOpacity>
+            </View>
+
+            {activeReminderActionItem ? (
+              /* STEP 3: Two Options for Adding the Chosen Reminder Item */
+              <View style={{ width: '100%' }}>
+                <Text
+                  style={[
+                    localStyles.importSubDesc,
+                    { color: colors.textMuted, marginBottom: 14 },
+                  ]}
+                >
+                  Como deseja adicionar "{activeReminderActionItem.name}" (
+                  {activeReminderActionItem.quantity || 1}{' '}
+                  {activeReminderActionItem.unit || 'un'} •{' '}
+                  {normalizeCategoryName(activeReminderActionItem.category)}) à
+                  sua lista de compras?
+                </Text>
+
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={() =>
+                    handleChooseReminderCamera(activeReminderActionItem)
+                  }
+                  style={[
+                    localStyles.reminderActionOptionBtn,
+                    {
+                      backgroundColor: colors.principal,
+                      borderColor: colors.principal,
+                    },
+                  ]}
+                >
+                  <View
+                    style={[
+                      localStyles.reminderActionIconCircle,
+                      { backgroundColor: 'rgba(255,255,255,0.2)' },
+                    ]}
+                  >
+                    <FontAwesome6 name="camera" size={16} color="#FFFFFF" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={[
+                        localStyles.reminderActionTitle,
+                        { color: '#FFFFFF' },
+                      ]}
+                    >
+                      Tirar foto da etiqueta
+                    </Text>
+                    <Text
+                      style={[
+                        localStyles.reminderActionSub,
+                        { color: 'rgba(255,255,255,0.85)' },
+                      ]}
+                    >
+                      Abre a câmera mantendo nome, quantidade e categoria do lembrete para ler o preço.
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={() =>
+                    handleChooseReminderManual(activeReminderActionItem)
+                  }
+                  style={[
+                    localStyles.reminderActionOptionBtn,
+                    {
+                      backgroundColor: colors.surfaceMuted,
+                      borderColor: colors.principal,
+                      marginBottom: 4,
+                    },
+                  ]}
+                >
+                  <View
+                    style={[
+                      localStyles.reminderActionIconCircle,
+                      { backgroundColor: colors.verdeSuave },
+                    ]}
+                  >
+                    <FontAwesome6
+                      name="pen-to-square"
+                      size={16}
+                      color={colors.principal}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={[
+                        localStyles.reminderActionTitle,
+                        { color: colors.textoEscuro },
+                      ]}
+                    >
+                      Adicionar manualmente
+                    </Text>
+                    <Text
+                      style={[
+                        localStyles.reminderActionSub,
+                        { color: colors.textMuted },
+                      ]}
+                    >
+                      Abre o formulário com os dados do lembrete já preenchidos para digitar o preço.
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            ) : !selectedReminderList ? (
+              /* STEP 1: Choose a Reminder List */
+              reminderLists.length === 0 ? (
+                <View style={localStyles.importEmptyBox}>
+                  <FontAwesome6
+                    name="clipboard-check"
+                    size={30}
+                    color={colors.textMuted}
+                  />
+                  <Text
+                    style={[
+                      localStyles.importEmptyText,
+                      { color: colors.textMuted },
+                    ]}
+                  >
+                    Você ainda não criou nenhuma Lista de Lembretes. Crie suas listas na aba "Lembretes" para utilizá-las aqui.
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  <Text
+                    style={[
+                      localStyles.importSubDesc,
+                      { color: colors.textMuted },
+                    ]}
+                  >
+                    Selecione uma lista de lembretes para ver seus itens:
+                  </Text>
+                  <ScrollView
+                    style={{ width: '100%', maxHeight: 340 }}
+                    showsVerticalScrollIndicator={false}
+                  >
+                    {reminderLists.map((remList) => {
+                      const items = Array.isArray(remList.items)
+                        ? remList.items
+                        : [];
+                      const alreadyInThisListCount = items.filter((it) =>
+                        importedReminderIdsSet.has(it.id)
+                      ).length;
+                      return (
+                        <TouchableOpacity
+                          key={remList.id}
+                          activeOpacity={0.8}
+                          onPress={() => setSelectedReminderList(remList)}
+                          style={[
+                            localStyles.importListOption,
+                            {
+                              backgroundColor: colors.surfaceMuted,
+                              borderColor: colors.borderColor,
+                            },
+                          ]}
+                        >
+                          <View
+                            style={[
+                              localStyles.importListIcon,
+                              { backgroundColor: colors.verdeSuave },
+                            ]}
+                          >
+                            <FontAwesome6
+                              name="clipboard-check"
+                              size={16}
+                              color={colors.principal}
+                            />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text
+                              style={[
+                                localStyles.importListName,
+                                { color: colors.textoEscuro },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {remList.name}
+                            </Text>
+                            <Text
+                              style={[
+                                localStyles.importListMeta,
+                                { color: colors.textMuted },
+                              ]}
+                            >
+                              {items.length}{' '}
+                              {items.length === 1 ? 'item' : 'itens'}
+                              {alreadyInThisListCount > 0
+                                ? ` • ${alreadyInThisListCount} já na lista`
+                                : ''}
+                            </Text>
+                          </View>
+                          <FontAwesome6
+                            name="chevron-right"
+                            size={13}
+                            color={colors.textMuted}
+                          />
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </>
+              )
+            ) : (selectedReminderList.items || []).length === 0 ? (
+              <View style={localStyles.importEmptyBox}>
+                <Text
+                  style={[
+                    localStyles.importEmptyText,
+                    { color: colors.textMuted },
+                  ]}
+                >
+                  Esta lista de lembretes não possui itens cadastrados.
+                </Text>
+              </View>
+            ) : (
+              /* STEP 2: Tap an Item from the Reminder List */
+              <>
+                <Text
+                  style={[
+                    localStyles.importSubDesc,
+                    { color: colors.textMuted },
+                  ]}
+                >
+                  Toque em um item para adicioná-lo à lista "{list.name}":
+                </Text>
+
+                <ScrollView
+                  style={{ width: '100%', maxHeight: 340 }}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {selectedReminderList.items.map((remItem) => {
+                    const wasAlreadyImported = importedReminderIdsSet.has(
+                      remItem.id
+                    );
+                    const catName = normalizeCategoryName(remItem.category);
+
+                    return (
+                      <TouchableOpacity
+                        key={remItem.id}
+                        activeOpacity={0.8}
+                        onPress={() => setActiveReminderActionItem(remItem)}
+                        style={[
+                          localStyles.importItemRow,
+                          {
+                            backgroundColor: colors.surfaceMuted,
+                            borderColor: colors.borderColor,
+                          },
+                        ]}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <View
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              flexWrap: 'wrap',
+                            }}
+                          >
+                            <Text
+                              style={[
+                                localStyles.importItemName,
+                                { color: colors.textoEscuro },
+                              ]}
+                            >
+                              {remItem.name}
+                            </Text>
+                            <Text
+                              style={[
+                                localStyles.importItemQty,
+                                { color: colors.textMuted },
+                              ]}
+                            >
+                              ({remItem.quantity || 1} {remItem.unit || 'un'})
+                            </Text>
+                          </View>
+
+                          <View
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              flexWrap: 'wrap',
+                              marginTop: 5,
+                            }}
+                          >
+                            <View
+                              style={[
+                                localStyles.categoryBadge,
+                                { backgroundColor: colors.verdeSuave },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  localStyles.categoryBadgeText,
+                                  { color: colors.principal },
+                                ]}
+                              >
+                                {catName}
+                              </Text>
+                            </View>
+
+                            {wasAlreadyImported ? (
+                              <View
+                                style={[
+                                  localStyles.alreadyImportedBadge,
+                                  {
+                                    backgroundColor: colors.card,
+                                    borderColor: colors.borderColor,
+                                  },
+                                ]}
+                              >
+                                <FontAwesome6
+                                  name="circle-check"
+                                  size={10}
+                                  color={colors.principal}
+                                  style={{ marginRight: 4 }}
+                                />
+                                <Text
+                                  style={[
+                                    localStyles.alreadyImportedText,
+                                    { color: colors.textMuted },
+                                  ]}
+                                >
+                                  Já na lista
+                                </Text>
+                              </View>
+                            ) : null}
+                          </View>
+                        </View>
+
+                        <View
+                          style={[
+                            localStyles.importAddPlusBadge,
+                            { backgroundColor: colors.verdeSuave },
+                          ]}
+                        >
+                          <FontAwesome6
+                            name="plus"
+                            size={13}
+                            color={colors.principal}
+                          />
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
 
       {/* Modal de Seleção quando o OCR detecta 2 ou mais preços distintos na mesma etiqueta */}
       <Modal
@@ -1046,7 +1627,9 @@ export default function ListaDetalhesScreen({ route, navigation }) {
       <ConfirmModal
         visible={Boolean(itemToDelete)}
         title="Remover Produto"
-        message={`A quantidade chegou a zero. Deseja remover "${itemToDelete?.name || ''}" da lista?`}
+        message={`Deseja remover "${
+          itemToDelete?.name || ''
+        }" desta lista de compras?`}
         confirmLabel="Remover"
         onCancel={() => setItemToDelete(null)}
         onConfirm={handleConfirmDeleteItem}
@@ -1061,6 +1644,15 @@ export default function ListaDetalhesScreen({ route, navigation }) {
         confirmLabel="Finalizar"
         onCancel={() => setShowFinalizeConfirm(false)}
         onConfirm={handleConfirmFinalize}
+      />
+
+      <ConfirmModal
+        visible={showReopenConfirm}
+        title="Reabrir Compra"
+        message={`Deseja reabrir a compra "${list.name}" para voltar a adicionar ou editar produtos?`}
+        confirmLabel="Reabrir"
+        onCancel={() => setShowReopenConfirm(false)}
+        onConfirm={handleConfirmReopenList}
       />
     </View>
   );
@@ -1082,57 +1674,54 @@ const localStyles = StyleSheet.create({
     fontWeight: 'bold',
   },
   headerTitleWrap: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
+    flex: 1,
+    minWidth: 0,
     flexDirection: 'column',
     justifyContent: 'center',
-    maxWidth: '100%',
+    paddingRight: 2,
   },
   headerTitleName: {
-    fontSize: 16,
+    fontSize: 19,
     fontWeight: 'bold',
     flexShrink: 1,
   },
   headerTitleDate: {
-    fontSize: 11,
-    fontWeight: '600',
-    opacity: 0.8,
-    flexShrink: 0,
+    fontSize: 10.5,
     fontWeight: '500',
-    opacity: 0.78,
+    opacity: 0.82,
     marginTop: 1,
   },
   headerRightRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 8,
+    marginRight: 2,
   },
   headerIconBtn: {
-    paddingHorizontal: 9,
+    paddingHorizontal: 6,
     paddingVertical: 6,
   },
   headerFinalizeChip: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 14,
-    marginHorizontal: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginHorizontal: 2,
   },
   headerReopenChip: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.22)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 14,
-    marginHorizontal: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginHorizontal: 2,
   },
   headerFinalizeChipText: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: 'bold',
-    marginLeft: 5,
+    marginLeft: 4,
   },
   lockedBanner: {
     flexDirection: 'row',
@@ -1161,6 +1750,15 @@ const localStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  reminderIconButton: {
+    width: 48,
+    height: 46,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
   manualAddButton: {
     flex: 1,
     height: 46,
@@ -1176,7 +1774,7 @@ const localStyles = StyleSheet.create({
     marginLeft: 7,
   },
   cameraButton: {
-    width: 52,
+    width: 48,
     height: 46,
     borderRadius: 12,
     justifyContent: 'center',
@@ -1234,18 +1832,13 @@ const localStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: 14,
-    padding: 14,
+    padding: 13,
     marginBottom: 10,
     borderWidth: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 3,
-    elevation: 1,
   },
   itemMainArea: {
     flex: 1,
-    marginRight: 12,
+    marginRight: 8,
   },
   itemName: {
     fontSize: 16,
@@ -1287,37 +1880,44 @@ const localStyles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
+  itemRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   quantityStepper: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 12,
+    borderRadius: 11,
     borderWidth: 1,
-    paddingHorizontal: 4,
-    paddingVertical: 4,
+    paddingHorizontal: 3,
+    paddingVertical: 3,
   },
   stepperBtn: {
-    width: 32,
-    height: 32,
+    width: 30,
+    height: 30,
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
   },
   stepperVal: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: 'bold',
-    minWidth: 32,
+    minWidth: 28,
     textAlign: 'center',
+  },
+  deleteItemBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 6,
   },
   fixedTotalBar: {
     borderTopWidth: 2,
     paddingHorizontal: 16,
     paddingTop: 7,
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 5,
-    elevation: 8,
   },
   totalBarInner: {
     flexDirection: 'row',
@@ -1338,7 +1938,6 @@ const localStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   totalBarAmount: {
-    fontSize: 20,
     fontSize: 19,
     fontWeight: 'bold',
   },
@@ -1357,7 +1956,7 @@ const localStyles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.55)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: 18,
   },
   priceChoiceCard: {
     width: '100%',
@@ -1432,5 +2031,143 @@ const localStyles = StyleSheet.create({
   priceChoiceManualText: {
     fontSize: 13,
     fontWeight: 'bold',
+  },
+  importModalCard: {
+    width: '100%',
+    maxWidth: 440,
+    maxHeight: '88%',
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 18,
+  },
+  importHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  importBackBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  importCloseBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  importModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    flex: 1,
+  },
+  importSubDesc: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  importEmptyBox: {
+    alignItems: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 12,
+  },
+  importEmptyText: {
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 19,
+    marginTop: 10,
+  },
+  importListOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 13,
+    borderWidth: 1,
+    padding: 13,
+    marginBottom: 10,
+  },
+  importListIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  importListName: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  importListMeta: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  importItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    marginBottom: 8,
+  },
+  importItemName: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginRight: 6,
+  },
+  importItemQty: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  importAddPlusBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 10,
+  },
+  alreadyImportedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 6,
+    borderWidth: 1,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  alreadyImportedText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+  },
+  reminderActionOptionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    padding: 14,
+    marginBottom: 12,
+  },
+  reminderActionIconCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  reminderActionTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  reminderActionSub: {
+    fontSize: 12,
+    lineHeight: 17,
   },
 });

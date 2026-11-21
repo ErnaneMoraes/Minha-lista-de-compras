@@ -24,6 +24,27 @@ import {
   formatDateBR,
 } from '../../../src/storage/shoppingStorage';
 
+const EXPORT_OPTIONS = [
+  {
+    type: 'all',
+    title: 'Exportar Tudo',
+    desc: 'Inclui todas as listas de compras, histórico de gastos e todas as listas de lembretes.',
+    icon: 'layer-group',
+  },
+  {
+    type: 'lists',
+    title: 'Apenas Listas de Compras',
+    desc: 'Exporta somente suas listas de compras e histórico para relatórios.',
+    icon: 'cart-shopping',
+  },
+  {
+    type: 'reminders',
+    title: 'Apenas Lembretes',
+    desc: 'Exporta somente suas listas de lembretes reutilizáveis.',
+    icon: 'clipboard-check',
+  },
+];
+
 export default function SettingsModal() {
   const {
     darkMode,
@@ -37,29 +58,45 @@ export default function SettingsModal() {
   } = useAppSettings();
 
   const [isBackupBusy, setIsBackupBusy] = useState(false);
-  const [backupMessage, setBackupMessage] = useState(null); // { type: 'success' | 'error', text: string }
-  const [pendingRestore, setPendingRestore] = useState(null); // { payload, summary }
+  const [backupMessage, setBackupMessage] = useState(null);
+  const [showExportSelector, setShowExportSelector] = useState(false);
+  const [pendingRestore, setPendingRestore] = useState(null);
 
   useEffect(() => {
     if (isSettingsVisible) {
       setBackupMessage(null);
       setPendingRestore(null);
+      setShowExportSelector(false);
       setIsBackupBusy(false);
     }
   }, [isSettingsVisible]);
 
-  const handleExportBackup = async () => {
+  const handleRunExport = async (exportType = 'all') => {
+    setShowExportSelector(false);
     if (isBackupBusy) return;
     setIsBackupBusy(true);
     setBackupMessage(null);
     try {
-      const payload = await exportBackupPayload();
+      const payload = await exportBackupPayload(exportType);
       const jsonString = JSON.stringify(payload, null, 2);
       const now = new Date();
       const dd = String(now.getDate()).padStart(2, '0');
       const mm = String(now.getMonth() + 1).padStart(2, '0');
       const yyyy = now.getFullYear();
-      const fileName = `backup_minha_lista_${dd}-${mm}-${yyyy}.json`;
+      const suffix =
+        exportType === 'lists'
+          ? '_compras'
+          : exportType === 'reminders'
+            ? '_lembretes'
+            : '_completo';
+      const fileName = `backup_minha_lista${suffix}_${dd}-${mm}-${yyyy}.json`;
+
+      const typeLabel =
+        exportType === 'lists'
+          ? 'Apenas Listas de Compras'
+          : exportType === 'reminders'
+            ? 'Apenas Lembretes'
+            : 'Completo';
 
       if (Platform.OS === 'web') {
         const blob = new Blob([jsonString], { type: 'application/json' });
@@ -71,7 +108,7 @@ export default function SettingsModal() {
         URL.revokeObjectURL(url);
         setBackupMessage({
           type: 'success',
-          text: `Backup "${fileName}" baixado com sucesso!`,
+          text: `Backup (${typeLabel}) "${fileName}" baixado com sucesso!`,
         });
       } else {
         const file = new File(Paths.cache, fileName);
@@ -89,13 +126,13 @@ export default function SettingsModal() {
 
         await Sharing.shareAsync(file.uri, {
           mimeType: 'application/json',
-          dialogTitle: 'Exportar Backup - Minha Lista de Compras',
+          dialogTitle: `Exportar Backup (${typeLabel})`,
           UTI: 'public.json',
         });
 
         setBackupMessage({
           type: 'success',
-          text: 'Arquivo de backup gerado com sucesso!',
+          text: `Backup (${typeLabel}) gerado com sucesso!`,
         });
       }
     } catch (error) {
@@ -134,11 +171,11 @@ export default function SettingsModal() {
           content = await LegacyFileSystem.readAsStringAsync(asset.uri, {
             encoding: 'utf8',
           });
-        } catch (legacyErr) {
+        } catch {
           try {
             const file = new File(asset.uri);
             content = await file.text();
-          } catch (newFsErr) {
+          } catch {
             const resp = await fetch(asset.uri);
             content = await resp.text();
           }
@@ -180,16 +217,63 @@ export default function SettingsModal() {
     }
   };
 
+  const buildRestoreConfirmationMessage = () => {
+    if (!pendingRestore?.summary) return '';
+    const s = pendingRestore.summary;
+    const datePart = s.exportedAt ? ` de ${formatDateBR(s.exportedAt)}` : '';
+
+    if (s.detectedType === 'lists') {
+      return `Detectado backup de Apenas Listas de Compras${datePart} (${
+        s.listCount
+      } ${
+        s.listCount === 1 ? 'lista' : 'listas'
+      }). Suas listas de lembretes atuais serão mantidas intactas. Deseja restaurar?`;
+    }
+    if (s.detectedType === 'reminders') {
+      return `Detectado backup de Apenas Lembretes${datePart} (${
+        s.reminderListCount
+      } ${
+        s.reminderListCount === 1
+          ? 'lista de lembretes'
+          : 'listas de lembretes'
+      } com ${s.reminderItemCount} ${
+        s.reminderItemCount === 1 ? 'item' : 'itens'
+      }). Suas listas de compras atuais serão mantidas intactas. Deseja restaurar?`;
+    }
+    return `Detectado Backup Completo${datePart} contendo ${s.listCount} ${
+      s.listCount === 1 ? 'lista de compras' : 'listas de compras'
+    } e ${s.reminderListCount} ${
+      s.reminderListCount === 1 ? 'lista de lembretes' : 'listas de lembretes'
+    }. Deseja restaurar esses dados?`;
+  };
+
   const handleConfirmRestore = async () => {
     if (!pendingRestore?.payload) return;
     setIsBackupBusy(true);
     try {
-      await importBackupPayload(pendingRestore.payload);
+      const restoredSummary = await importBackupPayload(pendingRestore.payload);
       notifyDataRestored();
       setPendingRestore(null);
+
+      let successText =
+        'Backup completo restaurado com sucesso! Listas de compras e lembretes atualizados.';
+      if (restoredSummary.detectedType === 'lists') {
+        successText = `Foram importadas ${restoredSummary.listCount} ${
+          restoredSummary.listCount === 1
+            ? 'lista de compras'
+            : 'listas de compras'
+        } (lembretes atuais preservados).`;
+      } else if (restoredSummary.detectedType === 'reminders') {
+        successText = `Foram importadas ${restoredSummary.reminderListCount} ${
+          restoredSummary.reminderListCount === 1
+            ? 'lista de lembretes'
+            : 'listas de lembretes'
+        } (listas de compras atuais preservadas).`;
+      }
+
       setBackupMessage({
         type: 'success',
-        text: 'Backup restaurado com sucesso! Todas as telas foram atualizadas.',
+        text: successText,
       });
     } catch (error) {
       console.error('Erro ao restaurar backup:', error);
@@ -327,7 +411,7 @@ export default function SettingsModal() {
                   </Text>
                 </View>
                 <Text style={[styles.optionDesc, { color: colors.textMuted }]}>
-                  Recorta automaticamente a faixa central da foto onde está a etiqueta de preço.
+                  Abre o recortador pré-posicionado na faixa central onde está a etiqueta de preço.
                 </Text>
               </TouchableOpacity>
 
@@ -362,12 +446,12 @@ export default function SettingsModal() {
                   </Text>
                 </View>
                 <Text style={[styles.optionDesc, { color: colors.textMuted }]}>
-                  Mantém a foto inteira sem recorte automático.
+                  Exibe o quadro inteiro da foto com opção de recortar se desejar.
                 </Text>
               </TouchableOpacity>
             </View>
 
-            {/* Backup de Dados (Exportar / Importar JSON) */}
+            {/* Backup de Dados (Exportar Seletivo / Importar com Detecção Automática) */}
             <View
               style={[
                 styles.sectionBox,
@@ -389,7 +473,7 @@ export default function SettingsModal() {
                   { color: colors.textMuted, marginBottom: 12 },
                 ]}
               >
-                Exporte suas listas, produtos e lembretes em um arquivo JSON ou restaure um backup anterior.
+                Exporte tudo, apenas suas listas de compras ou apenas seus lembretes, e restaure arquivos JSON com detecção automática.
               </Text>
 
               {backupMessage ? (
@@ -423,7 +507,7 @@ export default function SettingsModal() {
               <TouchableOpacity
                 activeOpacity={0.8}
                 disabled={isBackupBusy}
-                onPress={handleExportBackup}
+                onPress={() => setShowExportSelector(true)}
                 style={[
                   styles.backupBtn,
                   {
@@ -487,24 +571,127 @@ export default function SettingsModal() {
         </View>
       </View>
 
+      {/* Modal de Exportação Seletiva */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={showExportSelector}
+        onRequestClose={() => setShowExportSelector(false)}
+      >
+        <View style={styles.overlay}>
+          <View
+            style={[
+              styles.exportSelectorCard,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.borderColor,
+              },
+            ]}
+          >
+            <View style={styles.headerRow}>
+              <View style={styles.titleWrap}>
+                <FontAwesome6
+                  name="file-export"
+                  size={17}
+                  color={colors.principal}
+                />
+                <Text style={[styles.exportSelectorTitle, { color: colors.textoEscuro }]}>
+                  O que deseja exportar?
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setShowExportSelector(false)}
+                style={[styles.closeIconBtn, { backgroundColor: colors.surfaceMuted }]}
+              >
+                <FontAwesome6 name="xmark" size={15} color={colors.textoEscuro} />
+              </TouchableOpacity>
+            </View>
+
+            <Text
+              style={[
+                styles.sectionDesc,
+                { color: colors.textMuted, marginBottom: 14 },
+              ]}
+            >
+              Selecione o escopo do arquivo JSON de backup:
+            </Text>
+
+            {EXPORT_OPTIONS.map((opt) => (
+              <TouchableOpacity
+                key={opt.type}
+                activeOpacity={0.8}
+                onPress={() => handleRunExport(opt.type)}
+                style={[
+                  styles.exportOptionBtn,
+                  {
+                    backgroundColor: colors.surfaceMuted,
+                    borderColor: colors.borderColor,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.exportOptionIconWrap,
+                    { backgroundColor: colors.verdeSuave },
+                  ]}
+                >
+                  <FontAwesome6
+                    name={opt.icon}
+                    size={16}
+                    color={colors.principal}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={[
+                      styles.exportOptionTitle,
+                      { color: colors.textoEscuro },
+                    ]}
+                  >
+                    {opt.title}
+                  </Text>
+                  <Text
+                    style={[styles.exportOptionDesc, { color: colors.textMuted }]}
+                  >
+                    {opt.desc}
+                  </Text>
+                </View>
+                <FontAwesome6
+                  name="chevron-right"
+                  size={13}
+                  color={colors.textMuted}
+                  style={{ marginLeft: 8 }}
+                />
+              </TouchableOpacity>
+            ))}
+
+            <TouchableOpacity
+              onPress={() => setShowExportSelector(false)}
+              style={[
+                styles.exportCancelBtn,
+                {
+                  backgroundColor: colors.surfaceMuted,
+                  borderColor: colors.borderColor,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.exportCancelText,
+                  { color: colors.textoEscuro },
+                ]}
+              >
+                Cancelar
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <ConfirmModal
         visible={Boolean(pendingRestore)}
         title="Restaurar Backup"
-        message={
-          pendingRestore
-            ? `Deseja restaurar o backup${
-                pendingRestore.summary.exportedAt
-                  ? ` de ${formatDateBR(pendingRestore.summary.exportedAt)}`
-                  : ''
-              } contendo ${pendingRestore.summary.listCount} ${
-                pendingRestore.summary.listCount === 1 ? 'lista' : 'listas'
-              } e ${pendingRestore.summary.reminderCount} ${
-                pendingRestore.summary.reminderCount === 1
-                  ? 'lembrete'
-                  : 'lembretes'
-              }? Os dados atuais do aparelho serão substituídos.`
-            : ''
-        }
+        message={buildRestoreConfirmationMessage()}
         confirmLabel="Restaurar"
         onCancel={() => setPendingRestore(null)}
         onConfirm={handleConfirmRestore}
@@ -528,6 +715,56 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 20,
     borderWidth: 1,
+  },
+  exportSelectorCard: {
+    width: '100%',
+    maxWidth: 430,
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+  },
+  exportSelectorTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginLeft: 10,
+  },
+  exportOptionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 13,
+    marginBottom: 10,
+  },
+  exportOptionIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  exportOptionTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  exportOptionDesc: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  exportCancelBtn: {
+    width: '100%',
+    height: 44,
+    borderRadius: 11,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  exportCancelText: {
+    fontSize: 14,
+    fontWeight: 'bold',
   },
   scrollArea: {
     maxHeight: 460,

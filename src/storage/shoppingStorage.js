@@ -1,4 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  STANDARD_CATEGORIES,
+  normalizeCategoryName,
+  getCategoryMeta,
+  inferCategorySmart,
+  learnCategoryAssociation,
+  loadLearnedCategories,
+} from '../utils/categoryDictionary';
 
 const STORAGE_KEYS = {
   LISTS: '@mlc_offline:lists',
@@ -10,20 +18,18 @@ const STORAGE_KEYS = {
 export const DEFAULT_SETTINGS = {
   darkMode: false,
   cameraCaptureMode: 'partial', // 'full' | 'partial'
-  cameraSource: 'native', // 'native' (câmera nativa do celular) | 'inapp' (câmera integrada)
+  cameraSource: 'native',
 };
 
-export const CATEGORIES = [
-  'Hortifruti',
-  'Mercearia',
-  'Laticínios',
-  'Carnes',
-  'Padaria',
-  'Bebidas',
-  'Limpeza',
-  'Higiene',
-  'Outros',
-];
+export const CATEGORIES = STANDARD_CATEGORIES;
+
+export {
+  normalizeCategoryName,
+  getCategoryMeta,
+  inferCategorySmart,
+  learnCategoryAssociation,
+  loadLearnedCategories,
+};
 
 export const UNITS = ['un', 'kg', 'pct', 'g', 'L', 'ml', 'cx', 'dz'];
 
@@ -224,7 +230,19 @@ export async function loadLists() {
   }
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((list) => ({
+      ...list,
+      importedReminderIds: Array.isArray(list?.importedReminderIds)
+        ? list.importedReminderIds
+        : [],
+      items: Array.isArray(list?.items)
+        ? list.items.map((item) => ({
+            ...item,
+            category: normalizeCategoryName(item?.category),
+          }))
+        : [],
+    }));
   } catch {
     return [];
   }
@@ -271,6 +289,7 @@ export async function createList(nameOrPayload, maybeBudget = 0, maybeCreatedAt 
     completedAt: null,
     createdAt,
     dataEditada: false,
+    importedReminderIds: [],
     items: [],
   };
   const updated = [newList, ...lists];
@@ -342,7 +361,7 @@ export async function finalizeList(listId) {
       );
       const sub = (Number(item.quantity) || 0) * unitPrice;
       total += sub;
-      const cat = item.category || 'Outros';
+      const cat = normalizeCategoryName(item.category);
       byCategory[cat] = (byCategory[cat] || 0) + sub;
     }
     const history = await loadHistory();
@@ -426,26 +445,47 @@ export async function addItemToList(listId, itemData) {
   if (!trimmedName) return null;
   const lists = await loadLists();
   const desc = String(itemData?.description ?? itemData?.notes ?? '').trim();
+  const normalizedCat = normalizeCategoryName(itemData?.category);
+
+  await learnCategoryAssociation(trimmedName, normalizedCat);
+
   const newItem = {
     id: generateId(),
     name: trimmedName,
     quantity: Math.max(0.1, parseDecimal(itemData?.quantity) || 1),
     unit: itemData?.unit || 'un',
-    category: itemData?.category || 'Outros',
+    category: normalizedCat,
     price: parseDecimal(itemData?.price),
     description: desc,
     checked: Boolean(itemData?.checked),
   };
 
-  const updated = lists.map((list) =>
-    list.id === listId ? { ...list, items: [newItem, ...list.items] } : list
-  );
+  const sourceRemId = itemData?.sourceReminderId || null;
+
+  const updated = lists.map((list) => {
+    if (list.id !== listId) return list;
+    const prevImported = Array.isArray(list.importedReminderIds)
+      ? list.importedReminderIds
+      : [];
+    const nextImported =
+      sourceRemId && !prevImported.includes(sourceRemId)
+        ? [...prevImported, sourceRemId]
+        : prevImported;
+    return {
+      ...list,
+      importedReminderIds: nextImported,
+      items: [newItem, ...(list.items || [])],
+    };
+  });
   await saveLists(updated);
   return updated.find((list) => list.id === listId) || null;
 }
 
 export async function updateItemInList(listId, itemId, updates) {
   const lists = await loadLists();
+  let learnedName = null;
+  let learnedCat = null;
+
   const updated = lists.map((list) => {
     if (list.id !== listId) return list;
     return {
@@ -456,15 +496,25 @@ export async function updateItemInList(listId, itemId, updates) {
         const nextDesc = hasDesc
           ? String(updates.description ?? updates.notes ?? '').trim()
           : item.description ?? item.notes ?? '';
+        const nextName =
+          updates.name !== undefined
+            ? String(updates.name).trim() || item.name
+            : item.name;
+        const nextCat = normalizeCategoryName(
+          updates.category !== undefined ? updates.category : item.category
+        );
+        learnedName = nextName;
+        learnedCat = nextCat;
+
         return {
           id: item.id,
-          name: updates.name !== undefined ? String(updates.name).trim() || item.name : item.name,
+          name: nextName,
           quantity:
             updates.quantity !== undefined
               ? Math.max(0.1, parseDecimal(updates.quantity) || 1)
               : item.quantity,
           unit: updates.unit !== undefined ? updates.unit : item.unit,
-          category: updates.category !== undefined ? updates.category : item.category,
+          category: nextCat,
           price: updates.price !== undefined ? parseDecimal(updates.price) : item.price,
           description: nextDesc,
           checked: updates.checked !== undefined ? Boolean(updates.checked) : item.checked,
@@ -472,6 +522,11 @@ export async function updateItemInList(listId, itemId, updates) {
       }),
     };
   });
+
+  if (learnedName && learnedCat) {
+    await learnCategoryAssociation(learnedName, learnedCat);
+  }
+
   await saveLists(updated);
   return updated.find((list) => list.id === listId) || null;
 }
@@ -484,7 +539,10 @@ export async function updateItemQuantity(listId, itemId, delta) {
       ...list,
       items: list.items.map((item) => {
         if (item.id !== itemId) return item;
-        const nextQty = Math.max(0, Math.round(((Number(item.quantity) || 0) + delta) * 100) / 100);
+        const nextQty = Math.max(
+          0,
+          Math.round(((Number(item.quantity) || 0) + delta) * 100) / 100
+        );
         return { ...item, quantity: nextQty };
       }),
     };
@@ -520,153 +578,295 @@ export async function loadHistory() {
 }
 
 // ==========================================
-// LISTA DE LEMBRETE (PLANEJAMENTO)
+// LISTAS DE LEMBRETES REUTILIZÁVEIS (MODELOS)
 // ==========================================
 
-export async function loadReminders() {
+function normalizeReminderListItems(items) {
+  if (!Array.isArray(items)) return [];
+  return items
+    .filter((it) => it && String(it.name || '').trim())
+    .map((it) => ({
+      id: it.id || generateId(),
+      name: String(it.name).trim(),
+      quantity: Math.max(0.1, parseDecimal(it.quantity ?? it.quantidade ?? 1) || 1),
+      unit: it.unit || 'un',
+      category: normalizeCategoryName(it.category),
+      notes: String(it.notes ?? it.description ?? '').trim(),
+      createdAt: it.createdAt || new Date().toISOString(),
+    }));
+}
+
+export function normalizeIncomingRemindersData(rawArray) {
+  if (!Array.isArray(rawArray) || rawArray.length === 0) {
+    return [];
+  }
+
+  const reminderLists = [];
+  const legacyOrphanItems = [];
+
+  for (const entry of rawArray) {
+    if (!entry || typeof entry !== 'object') continue;
+    if (Array.isArray(entry.items)) {
+      reminderLists.push({
+        id: entry.id || generateId(),
+        name: String(entry.name || 'Lista de Lembretes').trim() || 'Lista de Lembretes',
+        createdAt: entry.createdAt || new Date().toISOString(),
+        items: normalizeReminderListItems(entry.items),
+      });
+    } else if (String(entry.name || '').trim()) {
+      legacyOrphanItems.push(entry);
+    }
+  }
+
+  if (legacyOrphanItems.length > 0) {
+    reminderLists.push({
+      id: generateId(),
+      name: 'Lembretes Gerais',
+      createdAt: new Date().toISOString(),
+      items: normalizeReminderListItems(legacyOrphanItems),
+    });
+  }
+
+  return reminderLists;
+}
+
+export async function loadReminderLists() {
   const raw = await AsyncStorage.getItem(STORAGE_KEYS.REMINDERS);
   if (raw === null) return [];
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+
+    const needsMigration = parsed.some(
+      (entry) => entry && typeof entry === 'object' && !Array.isArray(entry.items)
+    );
+    const normalized = normalizeIncomingRemindersData(parsed);
+
+    if (needsMigration) {
+      await AsyncStorage.setItem(
+        STORAGE_KEYS.REMINDERS,
+        JSON.stringify(normalized)
+      );
+    }
+    return normalized;
   } catch {
     return [];
   }
 }
 
-export async function saveReminders(reminders) {
-  await AsyncStorage.setItem(STORAGE_KEYS.REMINDERS, JSON.stringify(reminders));
-  return reminders;
+// Alias for compatibility
+export const loadReminders = loadReminderLists;
+
+export async function saveReminderLists(lists) {
+  await AsyncStorage.setItem(STORAGE_KEYS.REMINDERS, JSON.stringify(lists));
+  return lists;
 }
 
-export async function addReminderItem({ name, quantity = 1, unit = 'un', category = 'Outros', notes = '' }) {
+export const saveReminders = saveReminderLists;
+
+export async function createReminderList(name) {
   const trimmed = String(name || '').trim();
   if (!trimmed) return null;
-  const reminders = await loadReminders();
+  const lists = await loadReminderLists();
+  const newList = {
+    id: generateId(),
+    name: trimmed,
+    createdAt: new Date().toISOString(),
+    items: [],
+  };
+  const updated = [newList, ...lists];
+  await saveReminderLists(updated);
+  return newList;
+}
+
+export async function renameReminderList(reminderListId, newName) {
+  const trimmed = String(newName || '').trim();
+  if (!trimmed) return null;
+  const lists = await loadReminderLists();
+  const updated = lists.map((list) =>
+    list.id === reminderListId ? { ...list, name: trimmed } : list
+  );
+  await saveReminderLists(updated);
+  return updated.find((list) => list.id === reminderListId) || null;
+}
+
+export async function deleteReminderList(reminderListId) {
+  const lists = await loadReminderLists();
+  const updated = lists.filter((list) => list.id !== reminderListId);
+  await saveReminderLists(updated);
+  return updated;
+}
+
+export async function deleteMultipleReminderLists(reminderListIds) {
+  const idSet = new Set(Array.isArray(reminderListIds) ? reminderListIds : []);
+  const lists = await loadReminderLists();
+  const updated = lists.filter((list) => !idSet.has(list.id));
+  await saveReminderLists(updated);
+  return updated;
+}
+
+export async function addReminderListItem(
+  reminderListId,
+  { name, quantity = 1, unit = 'un', category = 'Outros', notes = '' }
+) {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return null;
+  const normalizedCat = normalizeCategoryName(category);
+  await learnCategoryAssociation(trimmed, normalizedCat);
+
+  const lists = await loadReminderLists();
   const newItem = {
     id: generateId(),
     name: trimmed,
-    quantity: Math.max(1, parseDecimal(quantity) || 1),
+    quantity: Math.max(0.1, parseDecimal(quantity) || 1),
     unit: unit || 'un',
-    category: category || 'Outros',
+    category: normalizedCat,
     notes: String(notes || '').trim(),
-    checked: false,
     createdAt: new Date().toISOString(),
   };
-  const updated = [newItem, ...reminders];
-  await saveReminders(updated);
-  return updated;
-}
 
-export async function setReminderChecked(reminderId, checked) {
-  const reminders = await loadReminders();
-  const updated = reminders.map((item) =>
-    item.id === reminderId ? { ...item, checked: Boolean(checked) } : item
+  const updated = lists.map((list) =>
+    list.id === reminderListId
+      ? { ...list, items: [newItem, ...(list.items || [])] }
+      : list
   );
-  await saveReminders(updated);
-  return updated;
+  await saveReminderLists(updated);
+  return updated.find((list) => list.id === reminderListId) || null;
 }
 
-export async function deleteReminderItem(reminderId) {
-  const reminders = await loadReminders();
-  const updated = reminders.filter((item) => item.id !== reminderId);
-  await saveReminders(updated);
-  return updated;
-}
+export async function updateReminderListItem(reminderListId, itemId, updates) {
+  const lists = await loadReminderLists();
+  let learnedName = null;
+  let learnedCat = null;
 
-export async function clearCheckedReminders() {
-  const reminders = await loadReminders();
-  const updated = reminders.filter((item) => !item.checked);
-  await saveReminders(updated);
-  return updated;
-}
+  const updated = lists.map((list) => {
+    if (list.id !== reminderListId) return list;
+    return {
+      ...list,
+      items: (list.items || []).map((item) => {
+        if (item.id !== itemId) return item;
+        const nextName =
+          updates.name !== undefined
+            ? String(updates.name).trim() || item.name
+            : item.name;
+        const nextCat = normalizeCategoryName(
+          updates.category !== undefined ? updates.category : item.category
+        );
+        learnedName = nextName;
+        learnedCat = nextCat;
 
-export async function sendCheckedRemindersToActiveList() {
-  const reminders = await loadReminders();
-  const selected = reminders.filter((r) => r.checked);
-  const toSend = selected.length > 0 ? selected : reminders;
-  if (toSend.length === 0) return null;
-
-  let lists = await loadLists();
-  let targetList = lists.find((l) => !l.completed);
-
-  if (!targetList) {
-    targetList = {
-      id: generateId(),
-      name: 'Nova Compra',
-      budget: 0,
-      completed: false,
-      completedAt: null,
-      createdAt: new Date().toISOString(),
-      items: [],
+        return {
+          ...item,
+          name: nextName,
+          quantity:
+            updates.quantity !== undefined
+              ? Math.max(0.1, parseDecimal(updates.quantity) || 1)
+              : item.quantity,
+          unit: updates.unit !== undefined ? updates.unit : item.unit,
+          category: nextCat,
+          notes:
+            updates.notes !== undefined || updates.description !== undefined
+              ? String(updates.notes ?? updates.description ?? '').trim()
+              : item.notes || '',
+        };
+      }),
     };
-    lists = [targetList, ...lists];
+  });
+
+  if (learnedName && learnedCat) {
+    await learnCategoryAssociation(learnedName, learnedCat);
   }
 
-  let updatedItems = [...(targetList.items || [])];
-  for (const rem of toSend) {
-    const normalized = rem.name.trim().toLowerCase();
-    const existingIdx = updatedItems.findIndex(
-      (it) => it.name.trim().toLowerCase() === normalized
+  await saveReminderLists(updated);
+  return updated.find((list) => list.id === reminderListId) || null;
+}
+
+export async function deleteReminderListItem(reminderListId, itemId) {
+  const lists = await loadReminderLists();
+  const updated = lists.map((list) => {
+    if (list.id !== reminderListId) return list;
+    return {
+      ...list,
+      items: (list.items || []).filter((item) => item.id !== itemId),
+    };
+  });
+  await saveReminderLists(updated);
+  return updated.find((list) => list.id === reminderListId) || null;
+}
+
+export async function importReminderItemsToShoppingList(
+  shoppingListId,
+  reminderItemsToImport
+) {
+  if (!shoppingListId || !Array.isArray(reminderItemsToImport) || reminderItemsToImport.length === 0) {
+    return null;
+  }
+
+  const lists = await loadLists();
+  const updatedLists = lists.map((list) => {
+    if (list.id !== shoppingListId) return list;
+
+    const currentImportedIds = new Set(
+      Array.isArray(list.importedReminderIds) ? list.importedReminderIds : []
     );
-    if (existingIdx >= 0) {
-      updatedItems[existingIdx] = {
-        ...updatedItems[existingIdx],
-        quantity:
-          (Number(updatedItems[existingIdx].quantity) || 1) +
-          (Number(rem.quantity) || 1),
+
+    const newShoppingItems = reminderItemsToImport.map((rem) => {
+      if (rem.id) {
+        currentImportedIds.add(rem.id);
+      }
+      return {
+        id: generateId(),
+        name: String(rem.name || '').trim(),
+        quantity: Math.max(0.1, parseDecimal(rem.quantity) || 1),
+        unit: rem.unit || 'un',
+        category: normalizeCategoryName(rem.category),
+        price: 0,
+        description: String(rem.notes ?? rem.description ?? '').trim(),
+        checked: false,
+        sourceReminderId: rem.id || null,
       };
-    } else {
-      updatedItems = [
-        {
-          id: generateId(),
-          name: rem.name,
-          quantity: Number(rem.quantity) || 1,
-          unit: rem.unit || 'un',
-          category: rem.category || 'Outros',
-          price: 0,
-          description: rem.notes || 'Adicionado da Lista de Lembrete',
-          checked: false,
-        },
-        ...updatedItems,
-      ];
-    }
-  }
+    });
 
-  const updatedLists = lists.map((l) =>
-    l.id === targetList.id ? { ...l, items: updatedItems } : l
-  );
+    return {
+      ...list,
+      importedReminderIds: Array.from(currentImportedIds),
+      items: [...newShoppingItems, ...(list.items || [])],
+    };
+  });
+
   await saveLists(updatedLists);
-
-  return {
-    listId: targetList.id,
-    listName: targetList.name,
-    addedCount: toSend.length,
-  };
+  return updatedLists.find((l) => l.id === shoppingListId) || null;
 }
 
 // ==========================================
-// BACKUP E RESTAURAÇÃO (JSON)
+// BACKUP SELETIVO E RESTAURAÇÃO AUTOMÁTICA (JSON)
 // ==========================================
 
 export const BACKUP_APP_ID = 'minha-lista-de-compras';
 
-export async function exportBackupPayload() {
-  const [lists, reminders, history] = await Promise.all([
-    loadLists(),
-    loadReminders(),
-    loadHistory(),
-  ]);
+export async function exportBackupPayload(exportType = 'all') {
+  const safeType =
+    exportType === 'lists' || exportType === 'reminders' ? exportType : 'all';
+
+  const data = {};
+
+  if (safeType === 'all' || safeType === 'lists') {
+    const [lists, history] = await Promise.all([loadLists(), loadHistory()]);
+    data.lists = lists;
+    data.history = history;
+  }
+
+  if (safeType === 'all' || safeType === 'reminders') {
+    const reminders = await loadReminderLists();
+    data.reminders = reminders;
+  }
 
   return {
     appId: BACKUP_APP_ID,
-    version: 1,
+    version: 2,
+    exportType: safeType,
     exportedAt: new Date().toISOString(),
-    data: {
-      lists,
-      reminders,
-      history,
-    },
+    data,
   };
 }
 
@@ -680,23 +880,58 @@ export function validateBackupPayload(raw) {
       error: 'Este arquivo não pertence ao aplicativo Minha Lista de Compras.',
     };
   }
-  if (!raw.data || typeof raw.data !== 'object' || !Array.isArray(raw.data.lists)) {
+  if (!raw.data || typeof raw.data !== 'object') {
     return {
       valid: false,
-      error: 'A estrutura de listas do arquivo de backup está inválida ou corrompida.',
+      error: 'A estrutura de dados do arquivo de backup está inválida ou corrompida.',
     };
   }
 
-  const listCount = raw.data.lists.length;
-  const reminderCount = Array.isArray(raw.data.reminders)
-    ? raw.data.reminders.length
-    : 0;
+  const declaredType = raw.exportType;
+  const hasListsKey = Array.isArray(raw.data.lists);
+  const hasRemindersKey = Array.isArray(raw.data.reminders);
+
+  let hasLists = hasListsKey;
+  let hasReminders = hasRemindersKey;
+
+  if (declaredType === 'lists') {
+    hasLists = hasListsKey;
+    hasReminders = false;
+  } else if (declaredType === 'reminders') {
+    hasLists = false;
+    hasReminders = hasRemindersKey;
+  }
+
+  if (!hasLists && !hasReminders) {
+    return {
+      valid: false,
+      error:
+        'O arquivo de backup não contém listas de compras nem listas de lembretes válidas.',
+    };
+  }
+
+  const detectedType =
+    hasLists && hasReminders ? 'all' : hasLists ? 'lists' : 'reminders';
+
+  const listCount = hasLists ? raw.data.lists.length : 0;
+  const normalizedReminders = hasReminders
+    ? normalizeIncomingRemindersData(raw.data.reminders)
+    : [];
+  const reminderListCount = normalizedReminders.length;
+  const reminderItemCount = normalizedReminders.reduce(
+    (acc, rl) => acc + (Array.isArray(rl.items) ? rl.items.length : 0),
+    0
+  );
 
   return {
     valid: true,
     summary: {
+      detectedType,
+      hasLists,
+      hasReminders,
       listCount,
-      reminderCount,
+      reminderListCount,
+      reminderItemCount,
       exportedAt: raw.exportedAt || null,
     },
   };
@@ -708,20 +943,48 @@ export async function importBackupPayload(raw) {
     throw new Error(check.error);
   }
 
-  const incomingLists = Array.isArray(raw.data.lists) ? raw.data.lists : [];
-  const incomingReminders = Array.isArray(raw.data.reminders)
-    ? raw.data.reminders
-    : [];
-  const incomingHistory = Array.isArray(raw.data.history)
-    ? raw.data.history
-    : [];
+  const { hasLists, hasReminders } = check.summary;
+  const tasks = [];
 
-  // Restore only lists, reminders, and history — ignore any legacy `settings` key
-  await Promise.all([
-    AsyncStorage.setItem(STORAGE_KEYS.LISTS, JSON.stringify(incomingLists)),
-    AsyncStorage.setItem(STORAGE_KEYS.REMINDERS, JSON.stringify(incomingReminders)),
-    AsyncStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(incomingHistory)),
-  ]);
+  if (hasLists) {
+    const incomingLists = (Array.isArray(raw.data.lists) ? raw.data.lists : []).map(
+      (list) => ({
+        ...list,
+        importedReminderIds: Array.isArray(list?.importedReminderIds)
+          ? list.importedReminderIds
+          : [],
+        items: Array.isArray(list?.items)
+          ? list.items.map((item) => ({
+              ...item,
+              category: normalizeCategoryName(item?.category),
+            }))
+          : [],
+      })
+    );
+    tasks.push(
+      AsyncStorage.setItem(STORAGE_KEYS.LISTS, JSON.stringify(incomingLists))
+    );
 
-  return true;
+    if (Array.isArray(raw.data.history)) {
+      tasks.push(
+        AsyncStorage.setItem(
+          STORAGE_KEYS.HISTORY,
+          JSON.stringify(raw.data.history)
+        )
+      );
+    }
+  }
+
+  if (hasReminders) {
+    const incomingReminders = normalizeIncomingRemindersData(raw.data.reminders);
+    tasks.push(
+      AsyncStorage.setItem(
+        STORAGE_KEYS.REMINDERS,
+        JSON.stringify(incomingReminders)
+      )
+    );
+  }
+
+  await Promise.all(tasks);
+  return check.summary;
 }

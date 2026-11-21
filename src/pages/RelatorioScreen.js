@@ -4,6 +4,7 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
+  Modal,
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
@@ -16,47 +17,42 @@ import {
   calculateListStats,
   formatCurrency,
   formatMonthYearBR,
+  normalizeCategoryName,
+  getCategoryMeta,
 } from '../storage/shoppingStorage';
 
 const PERIOD_FILTERS = [
+  { key: 'current_month', label: 'Mês atual', months: 0 },
   { key: '3m', label: 'Últimos 3 meses', months: 3 },
   { key: '6m', label: 'Últimos 6 meses', months: 6 },
   { key: '12m', label: 'Últimos 12 meses', months: 12 },
+  { key: 'custom_month', label: 'Selecionar mês', months: null },
   { key: 'all', label: 'Período total', months: null },
 ];
 
-// High-contrast, distinct color palette for category slices in Light & Dark modes
-const CATEGORY_COLOR_MAP = {
-  Hortifruti: '#16A34A',
-  Carnes: '#DC2626',
-  'Laticínios': '#F59E0B',
-  Mercearia: '#2563EB',
-  Bebidas: '#0891B2',
-  Padaria: '#D97706',
-  Limpeza: '#7C3AED',
-  Higiene: '#DB2777',
-  Outros: '#64748B',
-};
-
 const FALLBACK_PIE_COLORS = [
-  '#16A34A',
   '#2563EB',
+  '#16A34A',
+  '#D97706',
   '#DC2626',
-  '#F59E0B',
   '#7C3AED',
   '#0891B2',
   '#DB2777',
-  '#D97706',
-  '#4F46E5',
-  '#059669',
+  '#0D9488',
+  '#E11D48',
+  '#B45309',
   '#64748B',
 ];
 
-function getCategoryColor(category, index) {
-  if (CATEGORY_COLOR_MAP[category]) {
-    return CATEGORY_COLOR_MAP[category];
-  }
-  return FALLBACK_PIE_COLORS[index % FALLBACK_PIE_COLORS.length];
+function getCategorySliceColor(category, index) {
+  const meta = getCategoryMeta(category);
+  return (
+    meta?.color || FALLBACK_PIE_COLORS[index % FALLBACK_PIE_COLORS.length]
+  );
+}
+
+function formatMonthSlashYear(label) {
+  return String(label || '').replace(/\s+de\s+/i, ' / ');
 }
 
 function polarToCartesian(cx, cy, r, angleInDegrees) {
@@ -105,12 +101,7 @@ function CategoryPieChart({ slices, total, colors }) {
         <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
           <G>
             {slices.length === 1 ? (
-              <Circle
-                cx={cx}
-                cy={cy}
-                r={radius}
-                fill={slices[0].color}
-              />
+              <Circle cx={cx} cy={cy} r={radius} fill={slices[0].color} />
             ) : (
               slices.map((slice) => {
                 const sliceAngle =
@@ -150,7 +141,6 @@ function CategoryPieChart({ slices, total, colors }) {
                 );
               })
             )}
-            {/* Inner donut cutout for modern readability */}
             <Circle cx={cx} cy={cy} r={innerRadius} fill={colors.card} />
           </G>
         </Svg>
@@ -161,7 +151,7 @@ function CategoryPieChart({ slices, total, colors }) {
         </View>
       </View>
 
-      {/* Clear Legend with Color, Category, R$ Value, and Percentage */}
+      {/* Clean Legend with Distinct Slice Color Dot, Category Name, R$ Value, and Percentage */}
       <View style={localStyles.legendContainer}>
         {slices.map((slice) => (
           <View
@@ -216,12 +206,12 @@ export default function RelatorioScreen({ navigation }) {
   const [lists, setLists] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Period filter: '3m' | '6m' | '12m' | 'all' (default: 'all')
-  const [periodFilter, setPeriodFilter] = useState('all');
-  // Chart visualization mode: 'bars' | 'pie'
-  const [chartType, setChartType] = useState('bars');
-  // Breakdown dimension when in 'bars' mode: 'month' | 'category'
-  const [barDimension, setBarDimension] = useState('month');
+  const [periodFilter, setPeriodFilter] = useState('all'); // 'current_month' | '3m' | '6m' | '12m' | 'custom_month' | 'all'
+  const [selectedMonthKey, setSelectedMonthKey] = useState(null);
+  const [isMonthPickerVisible, setIsMonthPickerVisible] = useState(false);
+
+  const [chartType, setChartType] = useState('bars'); // 'bars' | 'pie'
+  const [barDimension, setBarDimension] = useState('month'); // 'month' | 'category'
 
   const loadData = useCallback(async () => {
     try {
@@ -240,17 +230,76 @@ export default function RelatorioScreen({ navigation }) {
     return unsubscribe;
   }, [navigation, loadData, dataVersion]);
 
-  // Only account for lists marked as finalized (completed === true) within the active period filter
+  const allCompletedLists = useMemo(
+    () =>
+      lists.filter((list) => Boolean(list?.completed || list?.finalizada)),
+    [lists]
+  );
+
+  // All available months across finalized purchases for the month selector modal
+  const availableMonths = useMemo(() => {
+    const map = {};
+    for (const list of allCompletedLists) {
+      const dateRef = list.createdAt || list.completedAt;
+      const { key, label } = formatMonthYearBR(dateRef);
+      if (key === '0000-00') continue;
+      if (!map[key]) {
+        map[key] = {
+          key,
+          label: formatMonthSlashYear(label),
+          rawLabel: label,
+          listCount: 0,
+          total: 0,
+        };
+      }
+      const stats = calculateListStats(list);
+      map[key].listCount += 1;
+      map[key].total += stats.estimatedTotal;
+    }
+    return Object.values(map).sort((a, b) => b.key.localeCompare(a.key));
+  }, [allCompletedLists]);
+
+  const selectedMonthObj = useMemo(
+    () => availableMonths.find((m) => m.key === selectedMonthKey) || null,
+    [availableMonths, selectedMonthKey]
+  );
+
   const completedLists = useMemo(() => {
-    const allCompleted = lists.filter((list) =>
-      Boolean(list?.completed || list?.finalizada)
-    );
-    const activePeriodObj = PERIOD_FILTERS.find((p) => p.key === periodFilter);
-    if (!activePeriodObj || !activePeriodObj.months) {
-      return allCompleted;
+    if (periodFilter === 'all') {
+      return allCompletedLists;
+    }
+
+    if (periodFilter === 'custom_month') {
+      if (!selectedMonthKey) return allCompletedLists;
+      return allCompletedLists.filter((list) => {
+        const dateRef = list.createdAt || list.completedAt;
+        const { key } = formatMonthYearBR(dateRef);
+        return key === selectedMonthKey;
+      });
     }
 
     const now = new Date();
+
+    if (periodFilter === 'current_month') {
+      const currentMonth = now.getMonth();
+      const currentYear = now.getFullYear();
+      return allCompletedLists.filter((list) => {
+        const rawDate = list.createdAt || list.completedAt;
+        if (!rawDate) return false;
+        const parsed = new Date(rawDate);
+        if (Number.isNaN(parsed.getTime())) return false;
+        return (
+          parsed.getMonth() === currentMonth &&
+          parsed.getFullYear() === currentYear
+        );
+      });
+    }
+
+    const activePeriodObj = PERIOD_FILTERS.find((p) => p.key === periodFilter);
+    if (!activePeriodObj || !activePeriodObj.months) {
+      return allCompletedLists;
+    }
+
     const cutoff = new Date(
       now.getFullYear(),
       now.getMonth() - activePeriodObj.months,
@@ -261,14 +310,14 @@ export default function RelatorioScreen({ navigation }) {
       0
     );
 
-    return allCompleted.filter((list) => {
+    return allCompletedLists.filter((list) => {
       const rawDate = list.createdAt || list.completedAt;
       if (!rawDate) return false;
       const parsed = new Date(rawDate);
       if (Number.isNaN(parsed.getTime())) return false;
       return parsed >= cutoff;
     });
-  }, [lists, periodFilter]);
+  }, [allCompletedLists, periodFilter, selectedMonthKey]);
 
   const analytics = useMemo(() => {
     let totalEstimated = 0;
@@ -314,7 +363,7 @@ export default function RelatorioScreen({ navigation }) {
         );
         const sub = qty * unitPrice;
         if (sub > 0) {
-          const cat = item.category || 'Outros';
+          const cat = normalizeCategoryName(item.category);
           categoryTotals[cat] = (categoryTotals[cat] || 0) + sub;
         }
       }
@@ -339,7 +388,7 @@ export default function RelatorioScreen({ navigation }) {
           amount: Math.round(amount * 100) / 100,
           percentage: Math.round(rawPct),
           percentageFormatted,
-          color: getCategoryColor(category, index),
+          color: getCategorySliceColor(category, index),
         };
       });
 
@@ -356,6 +405,20 @@ export default function RelatorioScreen({ navigation }) {
     };
   }, [completedLists]);
 
+  const handlePressPeriodPill = (period) => {
+    if (period.key === 'custom_month') {
+      setIsMonthPickerVisible(true);
+    } else {
+      setPeriodFilter(period.key);
+    }
+  };
+
+  const handleSelectSpecificMonth = (monthKey) => {
+    setSelectedMonthKey(monthKey);
+    setPeriodFilter('custom_month');
+    setIsMonthPickerVisible(false);
+  };
+
   if (isLoading) {
     return (
       <View
@@ -371,7 +434,10 @@ export default function RelatorioScreen({ navigation }) {
   }
 
   const activePeriodLabel =
-    PERIOD_FILTERS.find((p) => p.key === periodFilter)?.label || 'Período total';
+    periodFilter === 'custom_month' && selectedMonthObj
+      ? selectedMonthObj.label
+      : PERIOD_FILTERS.find((p) => p.key === periodFilter)?.label ||
+        'Período total';
 
   return (
     <ScrollView
@@ -380,7 +446,7 @@ export default function RelatorioScreen({ navigation }) {
       showsVerticalScrollIndicator={false}
     >
       <View style={globalStyles.contentContainer}>
-        {/* Period Filter Bar: Últimos 3 meses | Últimos 6 meses | Últimos 12 meses | Período total */}
+        {/* Period Filter Bar: Mês atual | Últimos 3 meses | Últimos 6 meses | Últimos 12 meses | Selecionar mês | Período total */}
         <View
           style={[
             localStyles.periodCard,
@@ -405,11 +471,17 @@ export default function RelatorioScreen({ navigation }) {
           <View style={localStyles.periodGrid}>
             {PERIOD_FILTERS.map((period) => {
               const active = periodFilter === period.key;
+              const isCustomMonthBtn = period.key === 'custom_month';
+              const displayLabel =
+                isCustomMonthBtn && active && selectedMonthObj
+                  ? selectedMonthObj.label
+                  : period.label;
+
               return (
                 <TouchableOpacity
                   key={period.key}
                   activeOpacity={0.8}
-                  onPress={() => setPeriodFilter(period.key)}
+                  onPress={() => handlePressPeriodPill(period)}
                   style={[
                     localStyles.periodPill,
                     {
@@ -422,6 +494,16 @@ export default function RelatorioScreen({ navigation }) {
                     },
                   ]}
                 >
+                  {isCustomMonthBtn ? (
+                    <FontAwesome6
+                      name="calendar-days"
+                      size={11}
+                      color={
+                        active ? colors.textoPrincipal : colors.principal
+                      }
+                      style={{ marginRight: 5 }}
+                    />
+                  ) : null}
                   <Text
                     style={[
                       localStyles.periodPillText,
@@ -433,7 +515,7 @@ export default function RelatorioScreen({ navigation }) {
                     ]}
                     numberOfLines={1}
                   >
-                    {period.label}
+                    {displayLabel}
                   </Text>
                 </TouchableOpacity>
               );
@@ -539,7 +621,7 @@ export default function RelatorioScreen({ navigation }) {
           </View>
         </View>
 
-        {/* Main Analytical Chart Card with Toggle: Barras/Evolução vs Gráfico de Pizza */}
+        {/* Main Analytical Chart Card */}
         <View
           style={[
             localStyles.card,
@@ -549,7 +631,6 @@ export default function RelatorioScreen({ navigation }) {
             },
           ]}
         >
-          {/* Chart Type Toggle: Barras / Evolução vs Gráfico de Pizza */}
           <View
             style={[
               localStyles.chartToggleBar,
@@ -638,7 +719,7 @@ export default function RelatorioScreen({ navigation }) {
               <Text
                 style={[localStyles.mutedLabel, { color: colors.textMuted }]}
               >
-                Proporção acumulada por categoria em {activePeriodLabel.toLowerCase()}
+                Proporção acumulada por categoria em {activePeriodLabel}
               </Text>
 
               {analytics.categoryEntries.length === 0 ? (
@@ -832,26 +913,18 @@ export default function RelatorioScreen({ navigation }) {
                   {analytics.categoryEntries.map((entry) => (
                     <View key={entry.category} style={localStyles.catRow}>
                       <View style={localStyles.catLabelRow}>
-                        <View style={localStyles.legendLeft}>
-                          <View
-                            style={[
-                              localStyles.legendColorDot,
-                              { backgroundColor: entry.color },
-                            ]}
-                          />
-                          <Text
-                            style={[
-                              localStyles.catName,
-                              { color: colors.textoEscuro },
-                            ]}
-                          >
-                            {entry.category}
-                          </Text>
-                        </View>
+                        <Text
+                          style={[
+                            localStyles.catName,
+                            { color: colors.textoEscuro },
+                          ]}
+                        >
+                          {entry.category}
+                        </Text>
                         <Text
                           style={[
                             localStyles.catAmount,
-                            { color: colors.textoEscuro },
+                            { color: colors.principal },
                           ]}
                         >
                           {formatCurrency(entry.amount)} ({entry.percentageFormatted}%)
@@ -868,7 +941,7 @@ export default function RelatorioScreen({ navigation }) {
                             localStyles.catFill,
                             {
                               width: `${Math.max(entry.percentage, 2)}%`,
-                              backgroundColor: entry.color,
+                              backgroundColor: colors.verdePrincipal,
                             },
                           ]}
                         />
@@ -881,6 +954,136 @@ export default function RelatorioScreen({ navigation }) {
           )}
         </View>
       </View>
+
+      {/* Modal Seletor de Mês Específico */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={isMonthPickerVisible}
+        onRequestClose={() => setIsMonthPickerVisible(false)}
+      >
+        <View style={localStyles.modalOverlay}>
+          <View
+            style={[
+              localStyles.monthModalCard,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.borderColor,
+              },
+            ]}
+          >
+            <View style={localStyles.monthModalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                <FontAwesome6
+                  name="calendar-days"
+                  size={17}
+                  color={colors.principal}
+                  style={{ marginRight: 9 }}
+                />
+                <Text
+                  style={[
+                    localStyles.monthModalTitle,
+                    { color: colors.textoEscuro },
+                  ]}
+                >
+                  Selecionar Mês
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setIsMonthPickerVisible(false)}
+                style={[
+                  localStyles.monthModalCloseBtn,
+                  { backgroundColor: colors.surfaceMuted },
+                ]}
+              >
+                <FontAwesome6 name="xmark" size={15} color={colors.textoEscuro} />
+              </TouchableOpacity>
+            </View>
+
+            {availableMonths.length === 0 ? (
+              <View style={localStyles.emptyChartBox}>
+                <FontAwesome6
+                  name="calendar-xmark"
+                  size={28}
+                  color={colors.textMuted}
+                />
+                <Text style={[localStyles.emptySmall, { color: colors.textMuted }]}>
+                  Ainda não há compras finalizadas registradas em nenhum mês.
+                </Text>
+              </View>
+            ) : (
+              <>
+                <Text
+                  style={[
+                    localStyles.monthModalDesc,
+                    { color: colors.textMuted },
+                  ]}
+                >
+                  Escolha um mês com compras finalizadas para analisar seus gastos:
+                </Text>
+                <ScrollView
+                  style={{ width: '100%', maxHeight: 340 }}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {availableMonths.map((m) => {
+                    const isSelected =
+                      periodFilter === 'custom_month' &&
+                      selectedMonthKey === m.key;
+                    return (
+                      <TouchableOpacity
+                        key={m.key}
+                        activeOpacity={0.8}
+                        onPress={() => handleSelectSpecificMonth(m.key)}
+                        style={[
+                          localStyles.monthOptionRow,
+                          {
+                            backgroundColor: isSelected
+                              ? colors.verdeSuave
+                              : colors.surfaceMuted,
+                            borderColor: isSelected
+                              ? colors.principal
+                              : colors.borderColor,
+                          },
+                        ]}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={[
+                              localStyles.monthOptionLabel,
+                              { color: colors.textoEscuro },
+                            ]}
+                          >
+                            {m.label}
+                          </Text>
+                          <Text
+                            style={[
+                              localStyles.monthOptionSub,
+                              { color: colors.textMuted },
+                            ]}
+                          >
+                            {m.listCount}{' '}
+                            {m.listCount === 1
+                              ? 'compra finalizada'
+                              : 'compras finalizadas'}
+                          </Text>
+                        </View>
+                        <Text
+                          style={[
+                            localStyles.monthOptionTotal,
+                            { color: colors.principal },
+                          ]}
+                        >
+                          {formatCurrency(m.total)}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -925,6 +1128,7 @@ const localStyles = StyleSheet.create({
     paddingHorizontal: 10,
     borderRadius: 10,
     borderWidth: 1,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1107,8 +1311,8 @@ const localStyles = StyleSheet.create({
     marginRight: 10,
   },
   legendColorDot: {
-    width: 13,
-    height: 13,
+    width: 12,
+    height: 12,
     borderRadius: 4,
     marginRight: 9,
   },
@@ -1135,5 +1339,65 @@ const localStyles = StyleSheet.create({
   legendPctText: {
     fontSize: 12,
     fontWeight: 'bold',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 18,
+  },
+  monthModalCard: {
+    width: '100%',
+    maxWidth: 420,
+    maxHeight: '85%',
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 18,
+  },
+  monthModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  monthModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  monthModalCloseBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  monthModalDesc: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  monthOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 13,
+    marginBottom: 9,
+  },
+  monthOptionLabel: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  monthOptionSub: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  monthOptionTotal: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginLeft: 10,
   },
 });
