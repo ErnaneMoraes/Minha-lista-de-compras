@@ -14,107 +14,34 @@ import {
   DEFAULT_RETENTION_DAYS,
 } from '../../services/tagPhotoStorage';
 
-const SLIDES = [
+const GUIDANCE_CARDS = [
   {
-    key: 'welcome',
-    icon: 'cart-shopping',
-    badge: 'Boas-vindas',
-    title: 'Controle total das suas compras',
-    subtitle:
-      'Organize suas listas de supermercado, acompanhe o valor do carrinho em tempo real e nunca mais tenha surpresas no caixa.',
-    highlights: [
-      {
-        icon: 'list-check',
-        title: 'Listas com ou sem orçamento',
-        desc: 'Defina um limite de gastos opcional e receba alertas visuais se estiver perto ou acima do orçamento.',
-      },
-      {
-        icon: 'filter',
-        title: 'Organização por status',
-        desc: 'Filtre entre Todas, Em aberto e Finalizadas. Ao terminar a compra, finalize para salvar no histórico.',
-      },
-      {
-        icon: 'calculator',
-        title: 'Soma automática no rodapé',
-        desc: 'Cada produto adicionado atualiza o valor total na hora, com ajuste rápido de quantidade usando - e +.',
-      },
-    ],
+    key: 'lists',
+    icon: 'list-check',
+    title: 'Listas Inteligentes e Orçamento',
+    desc: 'Crie listas de compras, defina limite de gastos e acompanhe o total em tempo real.',
   },
   {
-    key: 'camera',
-    icon: 'camera',
-    badge: 'Agilidade no Mercado',
-    title: 'Adicione manualmente ou pela câmera',
-    subtitle:
-      'Cadastre produtos digitando normalmente ou fotografe a etiqueta da prateleira para preencher preço e nome automaticamente.',
-    highlights: [
-      {
-        icon: 'crop-simple',
-        title: 'Leitura inteligente de etiquetas',
-        desc: 'Tire foto da etiqueta, ajuste o recorte se desejar e o app identifica o preço. Se houver mais de um valor, você escolhe qual usar.',
-      },
-      {
-        icon: 'tags',
-        title: 'Categoria preenchida sozinha',
-        desc: 'O dicionário local reconhece centenas de produtos e aprende automaticamente suas preferências.',
-      },
-      {
-        icon: 'pen-to-square',
-        title: 'Edição rápida a qualquer momento',
-        desc: 'Toque em qualquer item da lista para ajustar nome, preço, unidade, categoria ou observação.',
-      },
-    ],
+    key: 'scanner',
+    icon: 'barcode',
+    title: 'Scanner Híbrido de Etiquetas',
+    desc: 'Aponte a câmera para travar o código de barras, fotografe o preço e deixe o app preencher nome, valor e categoria automaticamente.',
   },
   {
-    key: 'reminders',
-    icon: 'clipboard-check',
-    badge: 'Praticidade',
-    title: 'Lembretes reutilizáveis e relatórios',
-    subtitle:
-      'Monte listas fixas do que costuma comprar e acompanhe para onde vai o seu dinheiro mês a mês.',
-    highlights: [
-      {
-        icon: 'repeat',
-        title: 'Listas de lembretes temáticas',
-        desc: 'Crie listas como "Compra do Mês", "Farmácia" ou "Churrasco" sem precisar digitar tudo novamente.',
-      },
-      {
-        icon: 'file-import',
-        title: 'Importe direto na compra',
-        desc: 'Dentro de uma lista de compras, toque no ícone de lembretes para importar itens manualmente ou já fotografando a etiqueta.',
-      },
-      {
-        icon: 'chart-pie',
-        title: 'Resumo de Gastos visual',
-        desc: 'Acompanhe seus gastos por mês ou período com gráficos de barras e de pizza por categoria.',
-      },
-    ],
+    key: 'gallery',
+    icon: 'file-zipper',
+    title: 'Galeria e Backup Completo (.zip)',
+    desc: 'Salve fotos comprimidas das etiquetas para conferir no caixa e exporte/restaure tudo em um único arquivo .zip.',
   },
   {
     key: 'privacy',
     icon: 'shield-halved',
-    badge: '100% Offline e Seguro',
-    title: 'Seus dados ficam só com você',
-    subtitle:
-      'O Minha Lista de Compras funciona totalmente sem internet, sem cadastro e sem enviar nada para servidores externos.',
-    highlights: [
-      {
-        icon: 'mobile-screen-button',
-        title: 'Armazenamento 100% local',
-        desc: 'Todas as suas listas, preços e lembretes ficam salvos exclusivamente na memória do seu aparelho.',
-      },
-      {
-        icon: 'file-export',
-        title: 'Backup fácil em arquivo .json',
-        desc: 'Em Configurações, exporte tudo ou apenas listas/lembretes para guardar uma cópia ou compartilhar com outra pessoa.',
-      },
-    ],
-    helpNotice:
-      'Você pode rever todas essas orientações e um guia passo a passo completo a qualquer momento em Configurações > Ajuda.',
+    title: '100% Offline e Privado',
+    desc: 'Funciona sem internet no mercado e mantém todos os seus dados salvos apenas no seu aparelho.',
   },
 ];
 
-export default function OnboardingScreen({ onComplete }) {
+export default function OnboardingScreen({ onComplete, isReplay = false }) {
   const {
     colors,
     radiusCard,
@@ -126,7 +53,7 @@ export default function OnboardingScreen({ onComplete }) {
     updatePhotoSettings,
   } = useAppSettings();
   const insets = useSafeAreaInsets();
-  const [stepIndex, setStepIndex] = useState(0);
+
   const [savePhotosChoice, setSavePhotosChoice] = useState(
     initialSavePhotos !== undefined ? Boolean(initialSavePhotos) : true
   );
@@ -137,10 +64,6 @@ export default function OnboardingScreen({ onComplete }) {
     initialRetentionDays || DEFAULT_RETENTION_DAYS
   );
 
-  const currentSlide = SLIDES[stepIndex];
-  const isFirst = stepIndex === 0;
-  const isLast = stepIndex === SLIDES.length - 1;
-
   const finishOnboarding = async () => {
     await updatePhotoSettings({
       saveTagPhotos: savePhotosChoice,
@@ -150,94 +73,59 @@ export default function OnboardingScreen({ onComplete }) {
     onComplete?.();
   };
 
-  const handleNext = () => {
-    if (isLast) {
-      finishOnboarding();
-    } else {
-      setStepIndex((prev) => Math.min(SLIDES.length - 1, prev + 1));
-    }
-  };
-
-  const handlePrev = () => {
-    if (!isFirst) {
-      setStepIndex((prev) => Math.max(0, prev - 1));
-    }
-  };
-
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Green Top Header Strip */}
+      {/* Compact Top Header with 46px inline icon badge */}
       <View
         style={[
-          styles.topBanner,
+          styles.topHeader,
           {
             backgroundColor: colors.primary,
-            paddingTop: Math.max(insets.top, 16) + 10,
+            paddingTop: Math.max(insets.top, 16) + 8,
           },
         ]}
       >
-        <View style={styles.topBarRow}>
-          <View style={styles.brandRow}>
+        <View style={styles.headerInlineRow}>
+          <View style={styles.compactIconBadge}>
             <FontAwesome6
               name="cart-shopping"
-              size={16}
-              color={colors.textoPrincipal}
-            />
-            <Text style={[styles.brandText, { color: colors.textoPrincipal }]}>
-              Minha Lista de Compras
-            </Text>
-          </View>
-
-          {!isLast ? (
-            <TouchableOpacity
-              onPress={finishOnboarding}
-              style={styles.skipBtn}
-              accessibilityLabel="Pular introdução"
-            >
-              <Text style={[styles.skipText, { color: colors.textoPrincipal }]}>
-                Pular
-              </Text>
-            </TouchableOpacity>
-          ) : (
-            <View style={{ width: 52 }} />
-          )}
-        </View>
-
-        <View style={styles.heroIconWrap}>
-          <View style={styles.heroIconCircle}>
-            <FontAwesome6
-              name={currentSlide.icon}
-              size={34}
+              size={20}
               color={colors.primary}
             />
           </View>
-          <View style={styles.stepBadge}>
-            <Text style={styles.stepBadgeText}>
-              {currentSlide.badge} • {stepIndex + 1}/{SLIDES.length}
+          <View style={styles.headerTextCol}>
+            <Text
+              style={[styles.headerTitle, { color: colors.textoPrincipal }]}
+              numberOfLines={1}
+            >
+              Minha Lista de Compras
+            </Text>
+            <Text
+              style={[styles.headerSubtitle, { color: colors.textoPrincipal }]}
+              numberOfLines={2}
+            >
+              Guia rápido para comprar com agilidade e sem surpresas no caixa
             </Text>
           </View>
         </View>
       </View>
 
-      {/* Scrollable Slide Content */}
+      {/* Scrollable Guidance & Photo Preferences */}
       <ScrollView
         style={styles.scrollArea}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={[styles.title, { color: colors.textoEscuro }]}>
-          {currentSlide.title}
-        </Text>
-        <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-          {currentSlide.subtitle}
+        <Text style={[styles.sectionHeading, { color: colors.textoEscuro }]}>
+          Como aproveitar ao máximo
         </Text>
 
         <View style={styles.cardsWrap}>
-          {currentSlide.highlights.map((item) => (
+          {GUIDANCE_CARDS.map((item) => (
             <View
-              key={item.title}
+              key={item.key}
               style={[
-                styles.highlightCard,
+                styles.guidanceCard,
                 {
                   backgroundColor: colors.card,
                   borderColor: colors.borderColor,
@@ -248,27 +136,27 @@ export default function OnboardingScreen({ onComplete }) {
             >
               <View
                 style={[
-                  styles.highlightIconBox,
+                  styles.guidanceIconBox,
                   { backgroundColor: colors.verdeSuave },
                 ]}
               >
                 <FontAwesome6
                   name={item.icon}
                   size={16}
-                  color={colors.principal}
+                  color={colors.badgeText || colors.principal}
                 />
               </View>
               <View style={{ flex: 1 }}>
                 <Text
                   style={[
-                    styles.highlightTitle,
+                    styles.guidanceTitle,
                     { color: colors.textoEscuro },
                   ]}
                 >
                   {item.title}
                 </Text>
                 <Text
-                  style={[styles.highlightDesc, { color: colors.textMuted }]}
+                  style={[styles.guidanceDesc, { color: colors.textMuted }]}
                 >
                   {item.desc}
                 </Text>
@@ -277,250 +165,246 @@ export default function OnboardingScreen({ onComplete }) {
           ))}
         </View>
 
-        {isLast ? (
-          <View
-            style={[
-              styles.photoPrefCard,
-              {
-                backgroundColor: colors.card,
-                borderColor: colors.borderColor,
-                borderRadius: radiusCard,
-                borderWidth,
-              },
-            ]}
-          >
-            <View style={styles.photoPrefHeader}>
-              <View
-                style={[
-                  styles.photoPrefIconWrap,
-                  { backgroundColor: colors.verdeSuave },
-                ]}
-              >
-                <FontAwesome6
-                  name="image"
-                  size={15}
-                  color={colors.badgeText || colors.principal}
-                />
-              </View>
+        {/* Photo & Retention Preferences */}
+        <View
+          style={[
+            styles.photoPrefCard,
+            {
+              backgroundColor: colors.card,
+              borderColor: colors.borderColor,
+              borderRadius: radiusCard,
+              borderWidth,
+            },
+          ]}
+        >
+          <View style={styles.photoPrefHeader}>
+            <View
+              style={[
+                styles.photoPrefIconWrap,
+                { backgroundColor: colors.verdeSuave },
+              ]}
+            >
+              <FontAwesome6
+                name="image"
+                size={15}
+                color={colors.badgeText || colors.principal}
+              />
+            </View>
+            <Text
+              style={[styles.photoPrefTitle, { color: colors.textoEscuro }]}
+            >
+              Preferências de Fotos das Etiquetas
+            </Text>
+          </View>
+
+          <Text style={[styles.photoQuestion, { color: colors.textoEscuro }]}>
+            Deseja salvar as fotos das etiquetas?
+          </Text>
+          <Text style={[styles.photoSubHint, { color: colors.textMuted }]}>
+            As fotos são compactadas (~30 KB) no próprio aparelho para você
+            conferir preços quando quiser.
+          </Text>
+
+          <View style={styles.choiceRow}>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => setSavePhotosChoice(true)}
+              style={[
+                styles.choicePill,
+                {
+                  backgroundColor: savePhotosChoice
+                    ? colors.principal
+                    : colors.surfaceMuted,
+                  borderColor: savePhotosChoice
+                    ? colors.principal
+                    : colors.borderColor,
+                  borderRadius: Math.min(10, radiusButton),
+                },
+              ]}
+            >
               <Text
-                style={[styles.photoPrefTitle, { color: colors.textoEscuro }]}
+                style={[
+                  styles.choicePillText,
+                  {
+                    color: savePhotosChoice
+                      ? colors.textoPrincipal
+                      : colors.textoEscuro,
+                  },
+                ]}
               >
-                Preferências de Fotos das Etiquetas
+                Sim
               </Text>
-            </View>
-
-            <Text style={[styles.photoQuestion, { color: colors.textoEscuro }]}>
-              Deseja salvar as fotos das etiquetas?
-            </Text>
-            <Text style={[styles.photoSubHint, { color: colors.textMuted }]}>
-              As fotos são compactadas (~30 KB) no próprio aparelho para você
-              conferir preços quando quiser.
-            </Text>
-
-            <View style={styles.choiceRow}>
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => setSavePhotosChoice(true)}
+            </TouchableOpacity>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => setSavePhotosChoice(false)}
+              style={[
+                styles.choicePill,
+                {
+                  backgroundColor: !savePhotosChoice
+                    ? colors.principal
+                    : colors.surfaceMuted,
+                  borderColor: !savePhotosChoice
+                    ? colors.principal
+                    : colors.borderColor,
+                  borderRadius: Math.min(10, radiusButton),
+                },
+              ]}
+            >
+              <Text
                 style={[
-                  styles.choicePill,
+                  styles.choicePillText,
                   {
-                    backgroundColor: savePhotosChoice
-                      ? colors.principal
-                      : colors.surfaceMuted,
-                    borderColor: savePhotosChoice
-                      ? colors.principal
-                      : colors.borderColor,
-                    borderRadius: Math.min(10, radiusButton),
+                    color: !savePhotosChoice
+                      ? colors.textoPrincipal
+                      : colors.textoEscuro,
                   },
                 ]}
               >
-                <Text
+                Não
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {savePhotosChoice ? (
+            <View
+              style={[
+                styles.followUpBlock,
+                { borderTopColor: colors.borderColor },
+              ]}
+            >
+              <Text
+                style={[styles.photoQuestion, { color: colors.textoEscuro }]}
+              >
+                Deseja excluir as fotos automaticamente após um período?
+              </Text>
+              <View style={styles.choiceRow}>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => setAutoDeleteChoice(true)}
                   style={[
-                    styles.choicePillText,
+                    styles.choicePill,
                     {
-                      color: savePhotosChoice
-                        ? colors.textoPrincipal
-                        : colors.textoEscuro,
+                      backgroundColor: autoDeleteChoice
+                        ? colors.principal
+                        : colors.surfaceMuted,
+                      borderColor: autoDeleteChoice
+                        ? colors.principal
+                        : colors.borderColor,
+                      borderRadius: Math.min(10, radiusButton),
                     },
                   ]}
                 >
-                  Sim
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => setSavePhotosChoice(false)}
-                style={[
-                  styles.choicePill,
-                  {
-                    backgroundColor: !savePhotosChoice
-                      ? colors.principal
-                      : colors.surfaceMuted,
-                    borderColor: !savePhotosChoice
-                      ? colors.principal
-                      : colors.borderColor,
-                    borderRadius: Math.min(10, radiusButton),
-                  },
-                ]}
-              >
-                <Text
+                  <Text
+                    style={[
+                      styles.choicePillText,
+                      {
+                        color: autoDeleteChoice
+                          ? colors.textoPrincipal
+                          : colors.textoEscuro,
+                      },
+                    ]}
+                  >
+                    Sim
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => setAutoDeleteChoice(false)}
                   style={[
-                    styles.choicePillText,
+                    styles.choicePill,
                     {
-                      color: !savePhotosChoice
-                        ? colors.textoPrincipal
-                        : colors.textoEscuro,
+                      backgroundColor: !autoDeleteChoice
+                        ? colors.principal
+                        : colors.surfaceMuted,
+                      borderColor: !autoDeleteChoice
+                        ? colors.principal
+                        : colors.borderColor,
+                      borderRadius: Math.min(10, radiusButton),
                     },
                   ]}
                 >
-                  Não
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {savePhotosChoice ? (
-              <View
-                style={[
-                  styles.followUpBlock,
-                  { borderTopColor: colors.borderColor },
-                ]}
-              >
-                <Text
-                  style={[styles.photoQuestion, { color: colors.textoEscuro }]}
-                >
-                  Deseja excluir as fotos automaticamente após um período?
-                </Text>
-                <View style={styles.choiceRow}>
-                  <TouchableOpacity
-                    activeOpacity={0.8}
-                    onPress={() => setAutoDeleteChoice(true)}
+                  <Text
                     style={[
-                      styles.choicePill,
+                      styles.choicePillText,
                       {
-                        backgroundColor: autoDeleteChoice
-                          ? colors.principal
-                          : colors.surfaceMuted,
-                        borderColor: autoDeleteChoice
-                          ? colors.principal
-                          : colors.borderColor,
-                        borderRadius: Math.min(10, radiusButton),
+                        color: !autoDeleteChoice
+                          ? colors.textoPrincipal
+                          : colors.textoEscuro,
                       },
                     ]}
                   >
-                    <Text
-                      style={[
-                        styles.choicePillText,
-                        {
-                          color: autoDeleteChoice
-                            ? colors.textoPrincipal
-                            : colors.textoEscuro,
-                        },
-                      ]}
-                    >
-                      Sim
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    activeOpacity={0.8}
-                    onPress={() => setAutoDeleteChoice(false)}
-                    style={[
-                      styles.choicePill,
-                      {
-                        backgroundColor: !autoDeleteChoice
-                          ? colors.principal
-                          : colors.surfaceMuted,
-                        borderColor: !autoDeleteChoice
-                          ? colors.principal
-                          : colors.borderColor,
-                        borderRadius: Math.min(10, radiusButton),
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.choicePillText,
-                        {
-                          color: !autoDeleteChoice
-                            ? colors.textoPrincipal
-                            : colors.textoEscuro,
-                        },
-                      ]}
-                    >
-                      Não
-                    </Text>
-                  </TouchableOpacity>
-                </View>
+                    Não
+                  </Text>
+                </TouchableOpacity>
+              </View>
 
-                {autoDeleteChoice ? (
-                  <View style={styles.daysRow}>
-                    {RETENTION_DAY_OPTIONS.map((days) => {
-                      const active = retentionDaysChoice === days;
-                      return (
-                        <TouchableOpacity
-                          key={days}
-                          activeOpacity={0.8}
-                          onPress={() => setRetentionDaysChoice(days)}
+              {autoDeleteChoice ? (
+                <View style={styles.daysRow}>
+                  {RETENTION_DAY_OPTIONS.map((days) => {
+                    const active = retentionDaysChoice === days;
+                    return (
+                      <TouchableOpacity
+                        key={days}
+                        activeOpacity={0.8}
+                        onPress={() => setRetentionDaysChoice(days)}
+                        style={[
+                          styles.dayPill,
+                          {
+                            backgroundColor: active
+                              ? colors.principal
+                              : colors.surfaceMuted,
+                            borderColor: active
+                              ? colors.principal
+                              : colors.borderColor,
+                            borderRadius: Math.min(10, radiusButton),
+                          },
+                        ]}
+                      >
+                        <Text
                           style={[
-                            styles.dayPill,
+                            styles.dayPillText,
                             {
-                              backgroundColor: active
-                                ? colors.principal
-                                : colors.surfaceMuted,
-                              borderColor: active
-                                ? colors.principal
-                                : colors.borderColor,
-                              borderRadius: Math.min(10, radiusButton),
+                              color: active
+                                ? colors.textoPrincipal
+                                : colors.textoEscuro,
                             },
                           ]}
                         >
-                          <Text
-                            style={[
-                              styles.dayPillText,
-                              {
-                                color: active
-                                  ? colors.textoPrincipal
-                                  : colors.textoEscuro,
-                              },
-                            ]}
-                          >
-                            {days} dias
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                ) : null}
-              </View>
-            ) : null}
-          </View>
-        ) : null}
+                          {days} dias
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
 
-        {currentSlide.helpNotice ? (
-          <View
-            style={[
-              styles.helpNoticeBox,
-              {
-                backgroundColor: colors.verdeSuave,
-                borderColor: colors.principal,
-              },
-            ]}
-          >
-            <FontAwesome6
-              name="circle-info"
-              size={18}
-              color={colors.principal}
-              style={{ marginRight: 10, marginTop: 1 }}
-            />
-            <Text
-              style={[styles.helpNoticeText, { color: colors.textoEscuro }]}
-            >
-              {currentSlide.helpNotice}
-            </Text>
-          </View>
-        ) : null}
+        <View
+          style={[
+            styles.helpNoticeBox,
+            {
+              backgroundColor: colors.verdeSuave,
+              borderColor: colors.principal,
+            },
+          ]}
+        >
+          <FontAwesome6
+            name="circle-info"
+            size={16}
+            color={colors.principal}
+            style={{ marginRight: 9, marginTop: 2 }}
+          />
+          <Text style={[styles.helpNoticeText, { color: colors.textoEscuro }]}>
+            Você pode rever esta tela e o guia completo a qualquer momento em{' '}
+            <Text style={{ fontWeight: 'bold' }}>Configurações &gt; Ajuda</Text>.
+          </Text>
+        </View>
       </ScrollView>
 
-      {/* Bottom Controls */}
+      {/* Bottom CTA */}
       <View
         style={[
           styles.footer,
@@ -531,83 +415,32 @@ export default function OnboardingScreen({ onComplete }) {
           },
         ]}
       >
-        {/* Progress Dots */}
-        <View style={styles.dotsRow}>
-          {SLIDES.map((s, idx) => {
-            const active = idx === stepIndex;
-            return (
-              <TouchableOpacity
-                key={s.key}
-                onPress={() => setStepIndex(idx)}
-                style={[
-                  styles.dot,
-                  {
-                    width: active ? 24 : 8,
-                    backgroundColor: active
-                      ? colors.principal
-                      : colors.borderColor,
-                  },
-                ]}
-                accessibilityLabel={`Ir para etapa ${idx + 1}`}
-              />
-            );
-          })}
-        </View>
-
-        <View style={styles.buttonsRow}>
-          {!isFirst ? (
-            <TouchableOpacity
-              onPress={handlePrev}
-              style={[
-                styles.secondaryBtn,
-                {
-                  backgroundColor: colors.surfaceMuted,
-                  borderColor: colors.borderColor,
-                },
-              ]}
-            >
-              <FontAwesome6
-                name="arrow-left"
-                size={14}
-                color={colors.textoEscuro}
-              />
-              <Text
-                style={[
-                  styles.secondaryBtnText,
-                  { color: colors.textoEscuro },
-                ]}
-              >
-                Anterior
-              </Text>
-            </TouchableOpacity>
-          ) : null}
-
-          <TouchableOpacity
-            onPress={handleNext}
+        <TouchableOpacity
+          activeOpacity={0.88}
+          onPress={finishOnboarding}
+          style={[
+            styles.primaryBtn,
+            {
+              backgroundColor: colors.principal,
+              borderRadius: radiusButton,
+            },
+          ]}
+        >
+          <Text
             style={[
-              styles.primaryBtn,
-              {
-                backgroundColor: colors.principal,
-                borderRadius: radiusButton,
-              },
+              styles.primaryBtnText,
+              { color: colors.textoPrincipal },
             ]}
           >
-            <Text
-              style={[
-                styles.primaryBtnText,
-                { color: colors.textoPrincipal },
-              ]}
-            >
-              {isLast ? 'Começar a Usar' : 'Próximo'}
-            </Text>
-            <FontAwesome6
-              name={isLast ? 'check' : 'arrow-right'}
-              size={14}
-              color={colors.textoPrincipal}
-              style={{ marginLeft: 8 }}
-            />
-          </TouchableOpacity>
-        </View>
+            {isReplay ? 'Salvar e Voltar' : 'Começar a Usar'}
+          </Text>
+          <FontAwesome6
+            name="check"
+            size={14}
+            color={colors.textoPrincipal}
+            style={{ marginLeft: 8 }}
+          />
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -617,151 +450,116 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  topBanner: {
-    paddingHorizontal: 20,
-    paddingBottom: 22,
-    borderBottomLeftRadius: 26,
-    borderBottomRightRadius: 26,
+  topHeader: {
+    paddingHorizontal: 18,
+    paddingBottom: 16,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
   },
-  topBarRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 18,
-  },
-  brandRow: {
+  headerInlineRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  brandText: {
-    fontSize: 15,
-    fontWeight: 'bold',
-    marginLeft: 8,
-  },
-  skipBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-  },
-  skipText: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  heroIconWrap: {
-    alignItems: 'center',
-  },
-  heroIconCircle: {
-    width: 76,
-    height: 76,
-    borderRadius: 24,
+  compactIconBadge: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
     backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
+    marginRight: 13,
+    flexShrink: 0,
   },
-  stepBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+  headerTextCol: {
+    flex: 1,
   },
-  stepBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
+  headerTitle: {
+    fontSize: 19,
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  headerSubtitle: {
+    fontSize: 12.5,
+    lineHeight: 17,
+    opacity: 0.92,
   },
   scrollArea: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 22,
-    paddingBottom: 24,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 22,
     maxWidth: 680,
     width: '100%',
     alignSelf: 'center',
   },
-  title: {
-    fontSize: 22,
+  sectionHeading: {
+    fontSize: 15.5,
     fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 14.5,
-    lineHeight: 21,
-    textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: 10,
   },
   cardsWrap: {
     width: '100%',
   },
-  highlightCard: {
+  guidanceCard: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    borderRadius: 14,
     borderWidth: 1,
-    padding: 14,
-    marginBottom: 12,
+    padding: 12,
+    marginBottom: 10,
   },
-  highlightIconBox: {
-    width: 38,
-    height: 38,
-    borderRadius: 11,
+  guidanceIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
-    marginTop: 2,
+    marginRight: 11,
+    marginTop: 1,
+    flexShrink: 0,
   },
-  highlightTitle: {
-    fontSize: 15,
+  guidanceTitle: {
+    fontSize: 14.5,
     fontWeight: 'bold',
-    marginBottom: 3,
+    marginBottom: 2,
   },
-  highlightDesc: {
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  helpNoticeBox: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    borderRadius: 14,
-    borderWidth: 1.5,
-    padding: 14,
-    marginTop: 4,
+  guidanceDesc: {
+    fontSize: 12.5,
+    lineHeight: 18,
   },
   photoPrefCard: {
-    padding: 14,
-    marginBottom: 12,
+    padding: 13,
+    marginTop: 2,
+    marginBottom: 10,
   },
   photoPrefHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 9,
   },
   photoPrefIconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 9,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 10,
+    marginRight: 9,
   },
   photoPrefTitle: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 14.5,
     fontWeight: 'bold',
   },
   photoQuestion: {
-    fontSize: 13.5,
+    fontSize: 13,
     fontWeight: '700',
     marginBottom: 4,
   },
   photoSubHint: {
     fontSize: 12,
-    lineHeight: 17,
-    marginBottom: 10,
+    lineHeight: 16.5,
+    marginBottom: 9,
   },
   choiceRow: {
     flexDirection: 'row',
@@ -769,30 +567,30 @@ const styles = StyleSheet.create({
   },
   choicePill: {
     flex: 1,
-    height: 38,
+    height: 36,
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
   choicePillText: {
-    fontSize: 13.5,
+    fontSize: 13,
     fontWeight: '700',
   },
   followUpBlock: {
     borderTopWidth: 1,
-    marginTop: 12,
-    paddingTop: 12,
+    marginTop: 11,
+    paddingTop: 11,
   },
   daysRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    marginTop: 10,
+    marginTop: 9,
   },
   dayPill: {
     flexGrow: 1,
     minWidth: '21%',
-    paddingVertical: 8,
+    paddingVertical: 7,
     paddingHorizontal: 8,
     borderWidth: 1,
     alignItems: 'center',
@@ -802,60 +600,31 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     fontWeight: '700',
   },
+  helpNoticeBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 11,
+  },
   helpNoticeText: {
     flex: 1,
-    fontSize: 13.5,
-    fontWeight: '600',
-    lineHeight: 20,
+    fontSize: 12.5,
+    lineHeight: 18,
   },
   footer: {
     borderTopWidth: 1,
-    paddingHorizontal: 20,
-    paddingTop: 14,
-  },
-  dotsRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 14,
-  },
-  dot: {
-    height: 8,
-    borderRadius: 4,
-    marginHorizontal: 4,
-  },
-  buttonsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    maxWidth: 680,
-    width: '100%',
-    alignSelf: 'center',
-  },
-  secondaryBtn: {
-    height: 48,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-  secondaryBtnText: {
-    fontSize: 14.5,
-    fontWeight: 'bold',
-    marginLeft: 7,
+    paddingHorizontal: 18,
+    paddingTop: 12,
   },
   primaryBtn: {
-    flex: 1,
     height: 48,
-    borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
   primaryBtnText: {
-    fontSize: 15.5,
+    fontSize: 15,
     fontWeight: 'bold',
   },
 });

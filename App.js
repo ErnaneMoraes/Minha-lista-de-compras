@@ -563,6 +563,19 @@ function RootNavigator() {
               headerRight: () => null,
             }}
           />
+          <Stack.Screen
+            name="OnboardingReplay"
+            options={{
+              headerShown: false,
+            }}
+          >
+            {(props) => (
+              <OnboardingScreen
+                isReplay={true}
+                onComplete={() => props.navigation.goBack()}
+              />
+            )}
+          </Stack.Screen>
         </Stack.Navigator>
       </NavigationContainer>
       <SettingsModal

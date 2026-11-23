@@ -14,8 +14,31 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { FontAwesome6 } from '@expo/vector-icons';
 import { useAppSettings } from '../../../src/context/AppSettingsContext';
+import { detectShelfTagCropBounds } from '../../../src/services/labelOcr.native';
+import { recordAppErrorLog } from '../../../src/services/diagnosticLogService';
+
+const BARCODE_TYPES = ['ean13', 'ean8'];
+
+function isValidGs1BarcodeChecksum(digits) {
+  const n = digits.length;
+  if (n !== 8 && n !== 13) return false;
+  if (digits.startsWith('2')) return false;
+  if (n === 13 && (digits.startsWith('98') || digits.startsWith('99'))) {
+    return false;
+  }
+  if (/^(\d)\1+$/.test(digits)) return false;
+  let sum = 0;
+  for (let i = n - 2; i >= 0; i -= 1) {
+    const posFromRight = n - 1 - i;
+    const weight = posFromRight % 2 === 1 ? 3 : 1;
+    sum += Number(digits[i]) * weight;
+  }
+  const expected = (10 - (sum % 10)) % 10;
+  return expected === Number(digits[n - 1]);
+}
 
 // Proportions of the central horizontal strip in Partial Capture mode
 const PARTIAL_TOP_RATIO = 0.31;
@@ -37,6 +60,7 @@ function clamp(val, min, max) {
 function InteractiveCropCanvas({
   photo,
   mode = 'partial',
+  initialCropNormalized = null,
   onCropMetaReady,
   onCropBoxChange,
 }) {
@@ -150,7 +174,17 @@ function InteractiveCropCanvas({
     let initX;
     let initY;
 
-    if (mode === 'partial') {
+    if (
+      initialCropNormalized &&
+      initialCropNormalized.width >= 0.15 &&
+      initialCropNormalized.height >= 0.08
+    ) {
+      // Auto-enquadramento inteligente detectado ao redor da etiqueta
+      initW = clamp(rw * initialCropNormalized.width, minW, rw);
+      initH = clamp(rh * initialCropNormalized.height, minH, rh);
+      initX = ox + clamp(rw * initialCropNormalized.x, 0, rw - initW);
+      initY = oy + clamp(rh * initialCropNormalized.y, 0, rh - initH);
+    } else if (mode === 'partial') {
       // Horizontal central strip over shelf tag
       initW = clamp(rw * (1 - PARTIAL_SIDE_MARGIN_RATIO * 2), minW, rw);
       initH = clamp(rh * PARTIAL_HEIGHT_RATIO, minH, rh);
@@ -182,6 +216,7 @@ function InteractiveCropCanvas({
     renderedMeta.offsetY,
     photo?.uri,
     mode,
+    initialCropNormalized,
   ]);
 
   // 2. PanResponders using startCropRef.current + gestureState.dx / dy (never accumulating on state)
@@ -587,7 +622,7 @@ export default function CameraCaptureModal({
   onClose,
   onConfirmImage,
 }) {
-  const { colors } = useAppSettings();
+  const { colors, cameraSoundEnabled } = useAppSettings();
   const insets = useSafeAreaInsets();
 
   // Safe top padding so Android status bar never clips the header
@@ -599,70 +634,126 @@ export default function CameraCaptureModal({
     ) + 8;
   const safeBottomPadding = Math.max(insets.bottom, 14);
 
-  // stage: 'preview' | 'crop'
-  const [stage, setStage] = useState('crop');
+  const [permission, requestPermission] = useCameraPermissions();
+
+  // stage: 'camera' | 'preview' | 'crop'
+  const [stage, setStage] = useState('camera');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [torchEnabled, setTorchEnabled] = useState(false);
   const [capturedPhoto, setCapturedPhoto] = useState(null);
+  const [autoCropBounds, setAutoCropBounds] = useState(null);
+  const [lockedBarcode, setLockedBarcode] = useState(null);
+  const [liveBarcodeIsScale, setLiveBarcodeIsScale] = useState(false);
+  const [capturedBarcode, setCapturedBarcode] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
+  const cameraRef = useRef(null);
   const cropMetaRef = useRef(null);
   const currentCropBoxRef = useRef({ x: 0, y: 0, width: 0, height: 0 });
+  const lockedBarcodeRef = useRef(null);
+  const capturedBarcodeRef = useRef('');
 
-  const setupPhoto = useCallback(
-    (photo) => {
-      setCapturedPhoto(photo);
-      setErrorMsg('');
-      setStage('crop');
-    },
-    []
-  );
+  const resetLockedBarcode = useCallback(() => {
+    lockedBarcodeRef.current = null;
+    setLockedBarcode(null);
+    setLiveBarcodeIsScale(false);
+  }, []);
+
+  const setupPhoto = useCallback((photo, scannedCode = '', detectedBounds = null) => {
+    capturedBarcodeRef.current = scannedCode || '';
+    setCapturedBarcode(scannedCode || '');
+    setAutoCropBounds(detectedBounds || null);
+    setCapturedPhoto(photo);
+    setErrorMsg('');
+    setStage('crop');
+  }, []);
+
+  const openLiveCamera = useCallback(() => {
+    setCapturedPhoto(null);
+    setAutoCropBounds(null);
+    capturedBarcodeRef.current = '';
+    setCapturedBarcode('');
+    resetLockedBarcode();
+    setErrorMsg('');
+    setStage('camera');
+  }, [resetLockedBarcode]);
 
   useEffect(() => {
     if (visible) {
       setIsProcessing(false);
+      setIsCapturing(false);
+      setTorchEnabled(false);
       setErrorMsg('');
+      resetLockedBarcode();
       if (initialPhoto) {
-        setupPhoto(initialPhoto);
+        setupPhoto(initialPhoto, '');
       } else {
-        setCapturedPhoto(null);
-        handleLaunchNativeCamera();
+        openLiveCamera();
+        if (permission && !permission.granted && permission.canAskAgain) {
+          requestPermission().catch(() => {});
+        }
       }
     } else {
       setCapturedPhoto(null);
+      setTorchEnabled(false);
+      capturedBarcodeRef.current = '';
+      setCapturedBarcode('');
+      resetLockedBarcode();
     }
   }, [visible, initialPhoto]);
 
-  const handleLaunchNativeCamera = async () => {
-    if (isProcessing) return;
+  const handleBarcodeScanned = useCallback(({ data }) => {
+    // Mantém o código já travado imutável até a foto ser capturada ou o usuário tocar em "Recomeçar"
+    if (lockedBarcodeRef.current) {
+      return;
+    }
+
+    const digits = String(data || '').replace(/\D/g, '');
+    if (digits.length !== 8 && digits.length !== 13) {
+      return;
+    }
+
+    // Códigos de balança começam com '2': ignoramos para consulta EAN comercial
+    if (digits.startsWith('2')) {
+      setLiveBarcodeIsScale(true);
+      return;
+    }
+
+    // Rejeita leituras parciais ou corrompidas que não passam no dígito verificador GS1
+    if (!isValidGs1BarcodeChecksum(digits)) {
+      return;
+    }
+
+    lockedBarcodeRef.current = digits;
+    setLiveBarcodeIsScale(false);
+    setLockedBarcode(digits);
+  }, []);
+
+  const handleTakePhoto = async () => {
+    if (!cameraRef.current || isCapturing || isProcessing) return;
+    setIsCapturing(true);
     setErrorMsg('');
     try {
-      const camPerm = await ImagePicker.requestCameraPermissionsAsync();
-      if (!camPerm.granted) {
-        setErrorMsg('Permissão de câmera negada nas configurações do aparelho.');
-        return;
-      }
+      const scannedCode = lockedBarcodeRef.current || '';
 
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ['images'],
-        allowsEditing: false,
-        quality: 1,
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.92,
+        skipProcessing: false,
+        shutterSound: cameraSoundEnabled,
       });
 
-      if (result.canceled || !result.assets || !result.assets[0]) {
-        if (!capturedPhoto) {
-          onClose();
-        }
+      if (!photo?.uri) {
+        setErrorMsg('Não foi possível capturar a foto. Tente novamente.');
         return;
       }
 
-      const asset = result.assets[0];
-      let photoW = Number(asset.width) || 0;
-      let photoH = Number(asset.height) || 0;
-
+      let photoW = Number(photo.width) || 0;
+      let photoH = Number(photo.height) || 0;
       if (!photoW || !photoH) {
         await new Promise((resolve) => {
           Image.getSize(
-            asset.uri,
+            photo.uri,
             (w, h) => {
               photoW = w;
               photoH = h;
@@ -673,18 +764,38 @@ export default function CameraCaptureModal({
         });
       }
 
-      setupPhoto({
-        uri: asset.uri,
-        width: photoW || 1200,
-        height: photoH || 1600,
-      });
+      const detectedBounds = await detectShelfTagCropBounds(photo.uri).catch(
+        () => null
+      );
+
+      setTorchEnabled(false);
+      resetLockedBarcode();
+      setupPhoto(
+        {
+          uri: photo.uri,
+          width: photoW || 1200,
+          height: photoH || 1600,
+        },
+        scannedCode,
+        detectedBounds
+      );
     } catch (err) {
       const msg = err?.message || String(err);
-      if (!/cancel/i.test(msg)) {
-        setErrorMsg(`Erro ao abrir câmera do celular: ${msg}`);
-      }
+      setErrorMsg(`Erro ao capturar foto: ${msg}`);
+      recordAppErrorLog({
+        scope: 'Câmera',
+        message: `Erro ao capturar foto: ${msg}`,
+        stack: err?.stack || '',
+      }).catch(() => {});
     } finally {
-      setIsProcessing(false);
+      setIsCapturing(false);
+    }
+  };
+
+  const handleLaunchNativeCamera = async () => {
+    openLiveCamera();
+    if (permission && !permission.granted) {
+      await requestPermission().catch(() => {});
     }
   };
 
@@ -765,6 +876,7 @@ export default function CameraCaptureModal({
       onConfirmImage({
         uri: finalUri,
         base64: finalBase64,
+        barcode: capturedBarcodeRef.current || '',
       });
     } catch (err) {
       console.error('Erro ao processar imagem:', err);
@@ -828,10 +940,16 @@ export default function CameraCaptureModal({
       onConfirmImage({
         uri: manipulated.uri,
         base64: manipulated.base64,
+        barcode: capturedBarcodeRef.current || '',
       });
     } catch (err) {
       console.error('Erro ao recortar imagem:', err);
       setErrorMsg('Não foi possível aplicar o recorte.');
+      recordAppErrorLog({
+        scope: 'Recorte de Etiqueta',
+        message: err?.message || String(err || 'Falha ao recortar imagem'),
+        stack: err?.stack || '',
+      }).catch(() => {});
     } finally {
       setIsProcessing(false);
     }
@@ -866,17 +984,19 @@ export default function CameraCaptureModal({
           </TouchableOpacity>
 
           <Text style={styles.stageTitle} numberOfLines={1}>
-            Recortar Etiqueta
+            {stage === 'camera' ? 'Capturar Etiqueta' : 'Recortar Etiqueta'}
           </Text>
 
           <View style={styles.headerRightActions}>
-            <TouchableOpacity
-              onPress={handleLaunchNativeCamera}
-              style={[styles.headerBtn, { marginRight: 4 }]}
-              accessibilityLabel="Tirar outra foto"
-            >
-              <FontAwesome6 name="camera" size={16} color="#FFFFFF" />
-            </TouchableOpacity>
+            {stage !== 'camera' ? (
+              <TouchableOpacity
+                onPress={handleLaunchNativeCamera}
+                style={[styles.headerBtn, { marginRight: 4 }]}
+                accessibilityLabel="Tirar outra foto"
+              >
+                <FontAwesome6 name="camera" size={16} color="#FFFFFF" />
+              </TouchableOpacity>
+            ) : null}
             <TouchableOpacity
               onPress={handlePickFromGallery}
               style={styles.headerBtn}
@@ -897,6 +1017,192 @@ export default function CameraCaptureModal({
             <Text style={[styles.errorBannerText, { color: colors.logoutRed }]}>
               {errorMsg}
             </Text>
+          </View>
+        ) : null}
+
+        {/* STAGE 0: LIVE CAMERA WITH NATIVE BARCODE SCANNER (expo-camera) */}
+        {stage === 'camera' ? (
+          <View style={styles.cameraStage}>
+            {!permission ? (
+              <View style={styles.centered}>
+                <ActivityIndicator size="large" color="#22C55E" />
+                <Text style={styles.cameraHintText}>
+                  Preparando câmera...
+                </Text>
+              </View>
+            ) : !permission.granted ? (
+              <View style={styles.permissionBox}>
+                <FontAwesome6 name="camera" size={38} color="#22C55E" />
+                <Text style={styles.permissionTitle}>
+                  Permissão de câmera necessária
+                </Text>
+                <Text style={styles.permissionDesc}>
+                  Autorize o acesso à câmera para fotografar etiquetas e ler códigos de barras automaticamente.
+                </Text>
+                <TouchableOpacity
+                  style={[
+                    styles.permissionBtn,
+                    { backgroundColor: colors.principal },
+                  ]}
+                  onPress={() => requestPermission()}
+                >
+                  <Text style={styles.permissionBtnText}>Permitir Câmera</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.permissionSecondaryBtn}
+                  onPress={handlePickFromGallery}
+                >
+                  <Text style={styles.permissionSecondaryText}>
+                    Escolher da Galeria
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <>
+                <View style={styles.cameraPreviewWrap}>
+                  <CameraView
+                    ref={cameraRef}
+                    style={StyleSheet.absoluteFill}
+                    facing="back"
+                    mute={!cameraSoundEnabled}
+                    enableTorch={torchEnabled}
+                    barcodeScannerSettings={{
+                      barcodeTypes: BARCODE_TYPES,
+                    }}
+                    onBarcodeScanned={
+                      lockedBarcode ? undefined : handleBarcodeScanned
+                    }
+                  />
+
+                  <View
+                    style={[StyleSheet.absoluteFill, styles.cameraOverlay]}
+                    pointerEvents="box-none"
+                  >
+                    <View style={styles.cameraGuideFrame} pointerEvents="none">
+                      <View style={[styles.guideCorner, styles.guideCornerTL]} />
+                      <View style={[styles.guideCorner, styles.guideCornerTR]} />
+                      <View style={[styles.guideCorner, styles.guideCornerBL]} />
+                      <View style={[styles.guideCorner, styles.guideCornerBR]} />
+                    </View>
+
+                    <View
+                      style={styles.barcodeStatusContainer}
+                      pointerEvents="box-none"
+                    >
+                      {lockedBarcode ? (
+                        <View style={styles.lockedBarcodePill}>
+                          <View style={styles.lockedBarcodeInfo}>
+                            <FontAwesome6
+                              name="barcode"
+                              size={14}
+                              color="#FFFFFF"
+                            />
+                            <Text
+                              style={styles.liveBarcodeText}
+                              numberOfLines={1}
+                            >
+                              Código lido: {lockedBarcode}
+                            </Text>
+                          </View>
+                          <TouchableOpacity
+                            activeOpacity={0.8}
+                            onPress={resetLockedBarcode}
+                            style={styles.resetBarcodeBtn}
+                            accessibilityLabel="Recomeçar leitura do código de barras"
+                          >
+                            <FontAwesome6
+                              name="rotate-left"
+                              size={11}
+                              color="#FFFFFF"
+                            />
+                            <Text style={styles.resetBarcodeBtnText}>
+                              Recomeçar
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : liveBarcodeIsScale ? (
+                        <View style={styles.liveScaleBadge} pointerEvents="none">
+                          <FontAwesome6
+                            name="scale-balanced"
+                            size={13}
+                            color="#FEF08A"
+                          />
+                          <Text style={styles.liveScaleText}>
+                            Etiqueta de balança — fotografe para ler o texto
+                          </Text>
+                        </View>
+                      ) : (
+                        <Text
+                          style={styles.cameraFrameHint}
+                          pointerEvents="none"
+                        >
+                          Aponte para o código de barras ou fotografe a etiqueta
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                </View>
+
+                <View
+                  style={[
+                    styles.cameraControlsBar,
+                    { paddingBottom: safeBottomPadding + 6 },
+                  ]}
+                >
+                  <TouchableOpacity
+                    style={styles.cameraSideBtn}
+                    onPress={handlePickFromGallery}
+                    accessibilityLabel="Escolher foto da galeria"
+                  >
+                    <FontAwesome6 name="images" size={20} color="#FFFFFF" />
+                    <Text style={styles.cameraSideBtnLabel}>Galeria</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.shutterOuter,
+                      isCapturing && { opacity: 0.65 },
+                    ]}
+                    disabled={isCapturing}
+                    onPress={handleTakePhoto}
+                    accessibilityLabel="Capturar foto da etiqueta"
+                  >
+                    {isCapturing ? (
+                      <ActivityIndicator size="small" color={colors.principal} />
+                    ) : (
+                      <View
+                        style={[
+                          styles.shutterInner,
+                          { backgroundColor: colors.principal },
+                        ]}
+                      />
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.cameraSideBtn}
+                    onPress={() => setTorchEnabled((prev) => !prev)}
+                    accessibilityLabel={
+                      torchEnabled ? 'Desligar lanterna' : 'Ligar lanterna'
+                    }
+                  >
+                    <FontAwesome6
+                      name="bolt"
+                      size={20}
+                      color={torchEnabled ? '#FACC15' : '#FFFFFF'}
+                    />
+                    <Text
+                      style={[
+                        styles.cameraSideBtnLabel,
+                        torchEnabled && { color: '#FACC15' },
+                      ]}
+                    >
+                      {torchEnabled ? 'Flash On' : 'Flash'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
           </View>
         ) : null}
 
@@ -1007,6 +1313,7 @@ export default function CameraCaptureModal({
             <InteractiveCropCanvas
               photo={capturedPhoto}
               mode="partial"
+              initialCropNormalized={autoCropBounds}
               onCropMetaReady={(meta) => {
                 cropMetaRef.current = meta;
               }}
@@ -1025,6 +1332,32 @@ export default function CameraCaptureModal({
                 },
               ]}
             >
+              {capturedBarcode ? (
+                <View
+                  style={[
+                    styles.capturedBarcodePill,
+                    {
+                      backgroundColor: colors.verdeSuave,
+                      borderColor: colors.principal,
+                    },
+                  ]}
+                >
+                  <FontAwesome6
+                    name="barcode"
+                    size={13}
+                    color={colors.principal}
+                  />
+                  <Text
+                    style={[
+                      styles.capturedBarcodePillText,
+                      { color: colors.principal },
+                    ]}
+                  >
+                    Código EAN capturado: {capturedBarcode}
+                  </Text>
+                </View>
+              ) : null}
+
               <Text
                 style={[styles.cropPanelTitle, { color: colors.textoEscuro }]}
               >
@@ -1092,19 +1425,12 @@ export default function CameraCaptureModal({
           </View>
         ) : null}
 
-        {/* Fallback state when loading native camera */}
-        {!capturedPhoto ? (
+        {/* Fallback state when loading photo */}
+        {stage !== 'camera' && !capturedPhoto ? (
           <View style={styles.centered}>
             <ActivityIndicator size="large" color="#22C55E" />
-            <Text
-              style={{
-                color: '#FFFFFF',
-                marginTop: 14,
-                fontSize: 14,
-                fontWeight: '600',
-              }}
-            >
-              Abrindo câmera nativa...
+            <Text style={styles.cameraHintText}>
+              Preparando imagem...
             </Text>
           </View>
         ) : null}
@@ -1353,5 +1679,244 @@ const styles = StyleSheet.create({
     backgroundColor: '#22C55E',
     borderWidth: 2,
     borderColor: '#FFFFFF',
+  },
+  cameraStage: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  cameraPreviewWrap: {
+    flex: 1,
+    position: 'relative',
+  },
+  cameraPreview: {
+    flex: 1,
+  },
+  cameraOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  cameraGuideFrame: {
+    width: '90%',
+    height: '38%',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.45)',
+    position: 'relative',
+  },
+  guideCorner: {
+    position: 'absolute',
+    width: 24,
+    height: 24,
+    borderColor: '#22C55E',
+  },
+  guideCornerTL: {
+    top: -2,
+    left: -2,
+    borderTopWidth: 4,
+    borderLeftWidth: 4,
+    borderTopLeftRadius: 8,
+  },
+  guideCornerTR: {
+    top: -2,
+    right: -2,
+    borderTopWidth: 4,
+    borderRightWidth: 4,
+    borderTopRightRadius: 8,
+  },
+  guideCornerBL: {
+    bottom: -2,
+    left: -2,
+    borderBottomWidth: 4,
+    borderLeftWidth: 4,
+    borderBottomLeftRadius: 8,
+  },
+  guideCornerBR: {
+    bottom: -2,
+    right: -2,
+    borderBottomWidth: 4,
+    borderRightWidth: 4,
+    borderBottomRightRadius: 8,
+  },
+  barcodeStatusContainer: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    bottom: 16,
+    alignItems: 'center',
+  },
+  lockedBarcodePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(21, 128, 61, 0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+    paddingLeft: 13,
+    paddingRight: 6,
+    paddingVertical: 6,
+    borderRadius: 999,
+    maxWidth: '100%',
+  },
+  lockedBarcodeInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 1,
+    marginRight: 10,
+  },
+  resetBarcodeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.34)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  resetBarcodeBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11.5,
+    fontWeight: '700',
+    marginLeft: 5,
+  },
+  liveBarcodeBadge: {
+    marginTop: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(22, 163, 74, 0.92)',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 999,
+  },
+  liveBarcodeText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+    marginLeft: 7,
+  },
+  liveScaleBadge: {
+    marginTop: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.82)',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 999,
+  },
+  liveScaleText: {
+    color: '#FEF08A',
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 7,
+  },
+  cameraFrameHint: {
+    marginTop: 18,
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  cameraHintText: {
+    color: '#FFFFFF',
+    marginTop: 14,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  cameraControlsBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    paddingTop: 16,
+    paddingHorizontal: 24,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+  },
+  cameraSideBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 64,
+    paddingVertical: 8,
+  },
+  cameraSideBtnLabel: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 5,
+  },
+  shutterOuter: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    borderWidth: 4,
+    borderColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  shutterInner: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+  },
+  permissionBox: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 28,
+  },
+  permissionTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  permissionDesc: {
+    color: '#CBD5E1',
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: 8,
+    marginBottom: 22,
+    lineHeight: 20,
+  },
+  permissionBtn: {
+    paddingHorizontal: 24,
+    paddingVertical: 13,
+    borderRadius: 12,
+    width: '100%',
+    alignItems: 'center',
+  },
+  permissionBtnText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  permissionSecondaryBtn: {
+    marginTop: 14,
+    paddingVertical: 10,
+  },
+  permissionSecondaryText: {
+    color: '#94A3B8',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  capturedBarcodePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    marginBottom: 10,
+  },
+  capturedBarcodePillText: {
+    fontSize: 12,
+    fontWeight: '700',
+    marginLeft: 6,
   },
 });

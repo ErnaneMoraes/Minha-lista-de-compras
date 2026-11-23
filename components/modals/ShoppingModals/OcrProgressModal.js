@@ -8,9 +8,10 @@ export default function OcrProgressModal({
   visible,
   imageUri,
   progress = 0,
+  statusMessage = '',
   onCancel,
 }) {
-  const { colors } = useAppSettings();
+  const { colors, radiusCard, borderWidth } = useAppSettings();
   const pct = Math.max(0, Math.min(100, Math.round((Number(progress) || 0) * 100)));
 
   return (
@@ -27,12 +28,13 @@ export default function OcrProgressModal({
             {
               backgroundColor: colors.card,
               borderColor: colors.borderColor,
-              borderWidth: 1,
+              borderWidth,
+              borderRadius: radiusCard,
             },
           ]}
         >
           <Text style={[ModalStyle.modalTitle, { color: colors.textoEscuro }]}>
-            Analisando etiqueta...
+            {statusMessage ? 'Identificando produto...' : 'Analisando etiqueta...'}
           </Text>
 
           {imageUri ? (
@@ -50,9 +52,11 @@ export default function OcrProgressModal({
           />
 
           <Text style={[localStyles.statusText, { color: colors.textMuted }]}>
-            {pct > 0
-              ? `Lendo nome, preço e unidade (${pct}%)...`
-              : 'Preparando imagem da etiqueta...'}
+            {statusMessage
+              ? statusMessage
+              : pct > 0
+                ? `Lendo nome, preço e unidade (${pct}%)...`
+                : 'Preparando imagem da etiqueta...'}
           </Text>
 
           <View style={localStyles.buttonRow}>

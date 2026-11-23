@@ -1,5 +1,11 @@
 import React from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import {
+  View,
+  Text,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+} from 'react-native';
 import { FontAwesome6 } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import globalStyles from '../../../components/StyleSheet/Styles';
@@ -43,12 +49,16 @@ const HELP_SECTIONS = [
         text: 'Use os botões "-" e "+" diretamente no card de cada produto para somar ou diminuir unidades. O valor total da compra é recalculado na hora.',
       },
       {
-        label: 'Usar a Câmera / Recorte de Etiqueta:',
-        text: 'Toque no ícone de câmera à direita na barra inferior para fotografar a etiqueta da prateleira. Ajuste a área verde sobre a etiqueta e confirme para ler o preço automaticamente.',
+        label: 'Usar a Câmera / Código de Barras Travado e Auto-Enquadramento:',
+        text: 'Toque no ícone de câmera à direita na barra inferior. Você pode apontar primeiro para o código de barras comercial (EAN-13 ou EAN-8) do produto ou da etiqueta até aparecer "Código lido" (ele fica travado para não ser trocado por acidente), afastar o celular para fotografar a etiqueta inteira de preço e confirmar o recorte verde já pré-ajustado. Se ler o código errado, basta tocar em "Recomeçar" para escanear novamente. Em Configurações > Fotos das Etiquetas, você também pode silenciar o som da câmera.',
       },
       {
-        label: 'Etiquetas com mais de um preço:',
-        text: 'Quando a etiqueta tiver preço de varejo e atacado (ou dois valores diferentes), o app mostra as opções detectadas para você escolher com um toque qual valor deseja considerar.',
+        label: 'Etiquetas com mais de um preço e etiquetas de balança:',
+        text: 'Quando a etiqueta tiver dois preços principais de destaque (como varejo e atacado/clube), o app exibe as opções para você escolher com um toque. Em etiquetas de balança (açougue, frios e padaria), o app prioriza automaticamente o valor TOTAL da embalagem e ignora o preço por quilo (R$/kg), tara, peso e impostos (IBPT).',
+      },
+      {
+        label: 'Identificação Híbrida e Ícone de Origem:',
+        text: 'A consulta online ocorre exclusivamente quando um código de barras comercial (EAN) é lido, garantindo rapidez offline instantânea e mínimo consumo de dados móveis. O ícone discreto no canto inferior esquerdo da foto indica a origem: globo (Open Food Facts via EAN, ~1 KB), raio (Cache Local instantâneo sem rede) ou câmera (Leitura Local 100% offline por OCR). O preço vem sempre direto da etiqueta fotografada.',
       },
     ],
   },
@@ -104,8 +114,8 @@ const HELP_SECTIONS = [
     title: '5. Fotos das Etiquetas e Galeria',
     steps: [
       {
-        label: 'Salvamento compactado no aparelho:',
-        text: 'Quando ativado, cada etiqueta fotografada é salva localmente em formato JPEG leve (~30 KB) para que você possa conferir o preço da prateleira a qualquer momento.',
+        label: 'Salvamento compactado e economia de memória:',
+        text: 'Quando ativado, cada etiqueta fotografada é salva localmente em JPEG leve (~25 a 50 KB), o cache de produtos mantém apenas os últimos 300 itens de forma ultracompacta (< 25 KB) e as imagens temporárias de recorte são limpas automaticamente após cada leitura.',
       },
       {
         label: 'Ver foto direto no item:',
@@ -123,8 +133,8 @@ const HELP_SECTIONS = [
   },
 ];
 
-export default function AjudaScreen() {
-  const { colors, radiusCard, borderWidth } = useAppSettings();
+export default function AjudaScreen({ navigation }) {
+  const { colors, radiusCard, radiusButton, borderWidth } = useAppSettings();
   const insets = useSafeAreaInsets();
 
   return (
@@ -169,6 +179,42 @@ export default function AjudaScreen() {
               </Text>
             </View>
           </View>
+
+          {/* Replay Onboarding Action Button */}
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => navigation?.navigate('OnboardingReplay')}
+            style={[
+              styles.replayOnboardingBtn,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.principal,
+                borderRadius: radiusButton,
+              },
+            ]}
+            accessibilityLabel="Rever Tela de Boas-Vindas"
+          >
+            <FontAwesome6
+              name="wand-magic-sparkles"
+              size={15}
+              color={colors.principal}
+              style={{ marginRight: 9 }}
+            />
+            <Text
+              style={[
+                styles.replayOnboardingText,
+                { color: colors.principal },
+              ]}
+            >
+              Rever Tela de Boas-Vindas (Onboarding)
+            </Text>
+            <FontAwesome6
+              name="chevron-right"
+              size={12}
+              color={colors.principal}
+              style={{ marginLeft: 8 }}
+            />
+          </TouchableOpacity>
 
           {/* Guide Sections */}
           {HELP_SECTIONS.map((section) => (
@@ -292,6 +338,20 @@ const styles = StyleSheet.create({
   introDesc: {
     fontSize: 13,
     lineHeight: 18.5,
+  },
+  replayOnboardingBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 14,
+  },
+  replayOnboardingText: {
+    flex: 1,
+    fontSize: 13.5,
+    fontWeight: 'bold',
   },
   sectionCard: {
     borderRadius: 16,

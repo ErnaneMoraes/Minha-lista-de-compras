@@ -76,9 +76,9 @@ O **Minha Lista de Compras** resolve isso ao oferecer:
   - **Rose Quartz** (tons suaves de rosa com cantos extra-arredondados)
   - **Azul Oceano** (azul gelo e oceano)
   - **Neon Matrix** e **Cyberpunk Neon** (paletas neon de alto contraste com geometria reta/tech)
-- **Onboarding de Primeiro Acesso:** Fluxo guiado em etapas na primeira abertura explicando os pilares do app (persistido em `@mlc_offline:onboarding_completed`).
+- **Onboarding Compacto e Revisitável:** Tela inicial de boas-vindas com cabeçalho enxuto, 4 guias práticos diretos ao ponto e configuração de fotos/retenção (persistida em `@mlc_offline:onboarding_completed`), podendo ser revista a qualquer momento pelo botão **"Rever Tela de Boas-Vindas (Onboarding)"** em **Configurações > Ajuda**.
 - **Telas de Ajuda e Sobre:** Acessíveis em **Configurações**, oferecendo um guia passo a passo em linguagem simples para usuários leigos (`Ajuda`) e informações de versão, privacidade 100% offline e link do repositório oficial (`Sobre`).
-- **Resiliência e Performance:** Proteção global com `<ErrorBoundary>` (tela amigável de recuperação sem perda de dados), otimização de renderização com `React.memo` nos itens das listas e confirmações seguras via `ConfirmModal`.
+- **Resiliência, Privacidade (LGPD) e Performance:** Proteção global com `<ErrorBoundary>` (tela amigável de recuperação sem perda de dados), logs técnicos locais anônimos em conformidade com a LGPD (sem coleta de dados pessoais, contas, IP ou identificadores únicos), otimização de renderização com `React.memo` nos itens das listas e confirmações seguras via `ConfirmModal`.
 
 ---
 
@@ -86,16 +86,23 @@ O **Minha Lista de Compras** resolve isso ao oferecer:
 
 O aplicativo utiliza uma pipeline otimizada para etiquetas de prateleira brasileiras:
 
-1. **Captura e Recorte Interativo (`CameraCaptureModal.js`):**
-   - Captura via câmera nativa (`expo-image-picker`) seguida imediatamente pelo canvas interativo de recorte por gestos (`PanResponder`) já pré-posicionado na faixa central da etiqueta (captura parcial padrão).
-2. **Pré-processamento (`tagPreprocess.js`):**
-   - Normalização de contraste, binarização adaptativa e segmentação direcionada das áreas de título e preço.
+1. **Câmera Integrada com Travamento de Código de Barras (EAN-13/EAN-8), Som Configurável e Auto-Enquadramento (`CameraCaptureModal.js`):**
+   - Utiliza `CameraView` (`expo-camera`) em fluxo de 2 etapas sem pressa: ao apontar para um código de barras comercial (`ean13` ou `ean8`, validado por dígito verificador GS1 Módulo-10 e ignorando códigos de balança iniciados por `2`), o código fica **travado** na sessão (`Código lido: ...`) para o usuário poder afastar o celular e fotografar a etiqueta de preço inteira sem risco de sobrescrita acidental, com botão **`Recomeçar`** para limpar e ler outro código. Inclui ainda opção para silenciar o **Som da câmera ao fotografar** em **Configurações > Fotos das Etiquetas** e detecção automática dos limites da etiqueta no recorte interativo (`PanResponder`).
+2. **Pré-processamento Adaptativo e Fallback para Etiquetas Amarelas (`NativeOcrBridge.native.js` / `labelOcr.native.js`):**
+   - Normalização adaptativa de contraste com margem branca generosa (`48px`), upscaling mínimo de `1100px` e passada de fallback automática em escala de cinza limpa caso etiquetas amarelas recortadas rentes às bordas retornem pouco texto ou nenhum preço.
 3. **Motor OCR Offline:**
    - **Web:** Execução direta via `tesseract.js`.
    - **Mobile (Android/iOS):** Ponte headless via `react-native-webview` com Tesseract.js embarcado.
-4. **Parser Inteligente e Múltiplos Preços (`labelParser.js`):**
-   - Filtra ruídos como impostos (`IBPT`), códigos de barras e preços de referência fracionados.
-   - Quando detecta mais de um valor na etiqueta (ex.: varejo e atacado), exibe um seletor rápido para o usuário escolher qual preço considerar antes de confirmar o produto.
+4. **Parser Inteligente, Etiquetas de Balança e Múltiplos Preços (`labelParser.js`):**
+   - Filtra ruídos como impostos (`IBPT`), datas, códigos de seção (`Sec.:`), metadados de balança (`TARA`, `PESO`, `EMBALADO`, `VALIDO ATE`) e preços de referência fracionados (`POR LITRO`, `PRECO EQUIVALE`, `P/Lt`, `P/KG`, `R$/kg`, `RS/kg`, `VALOR KG`, valores com 3 decimais).
+   - Prioriza explicitamente o valor ancorado à palavra **`TOTAL`** em etiquetas de balança (ex.: `TOTAL R$ 11,02` sobre `RS/kg: 59,90`) e remove unidades soltas redundantes ao final do título (`Pate de Frango Kg` -> `Pate de Frango`), preservando pesos reais como `500ml`, `1kg` e `300g`.
+   - Aplica filtro de dominância por altura visual (`>= 60%` do preço principal) para evitar falsos múltiplos preços em etiquetas de preço único.
+   - Reconhece preços com sufixo colado (`R$1,39UNID`, `R$1,39KG`), dígitos grandes fragmentados (com proximidade estrita `< 0.5x` altura e proteção contra artefatos à esquerda em displays LCD) e volumes condensados (`6000ml` -> `600ml`). A leitura de códigos de barras depende 100% do leitor óptico nativo da câmera (`lockedBarcode`), sem adivinhação por texto OCR.
+5. **Enriquecimento Híbrido Open Food Facts v2 Exclusivo por EAN-13/EAN-8 + Cache LRU (`productLookupService.js`):**
+   - **Fluxo 1 (EAN-13 ou EAN-8 comercial validado por GS1 Módulo-10):** Aceita exclusivamente códigos de 8 ou 13 dígitos lidos pela câmera nativa que não começam com `2` e passam na fórmula oficial do dígito verificador GS1 Módulo-10 (`isValidGtinBarcode`), rejeitando fragmentos truncados de 12 dígitos antes de qualquer requisição `HTTP 404`. Consulta `world.openfoodfacts.org/api/v2/product/{ean}.json` solicitando apenas campos de texto essenciais (~1 KB por consulta, sem baixar imagens externas), normalizando títulos malformados (ex.: `Stella Arois600` -> `600ml`) ou preservando o título limpo do OCR local quando mais preciso.
+   - **Sem EAN comercial ou etiquetas de balança (prefixo `2`):** Não realiza chamadas externas de busca textual, retornando imediatamente o resultado do OCR local (`origem: 'ocr_local'`) com latência zero, sem erros `HTTP 503` e com consumo mínimo de dados móveis.
+   - **Indicador Visual Discreto de Origem:** A miniatura da etiqueta no modal do produto exibe um ícone circular discreto no canto inferior esquerdo indicando a origem do preenchimento: **Globo** (Open Food Facts online), **Raio** (Cache Local sem rede) ou **Câmera** (Leitura Local por OCR).
+   - **Baixo Consumo de Rede e Armazenamento:** Timeout estrito de `4s` (`AbortController`), fallback 100% offline automático, cache local LRU ultracompacto limitado a `300` entradas (`< 25 KB`) e limpeza automática de arquivos temporários de OCR.
 
 ---
 
@@ -160,7 +167,8 @@ Minha lista de compras/
     │   └── RelatorioScreen.js                # Resumo de Gastos com gráficos (Barras/Pizza) e filtros
     ├── services/
     │   ├── backupArchiveService.js           # Exportação e importação de backups compactados (.zip e .json)
-    │   ├── labelParser.js                    # Extração de preço(s), nome e unidade da etiqueta
+    │   ├── labelParser.js                    # Extração de preço(s), nome, unidade e EAN da etiqueta
+    │   ├── productLookupService.js           # Enriquecimento híbrido Open Food Facts v2 + cache LRU
     │   ├── tagPreprocess.js                  # Pré-processamento de imagem da etiqueta
     │   ├── tagPhotoStorage.js                # Compactação, retenção, estatísticas e backup de fotos
     │   ├── labelOcr.native.js                # OCR para Android/iOS

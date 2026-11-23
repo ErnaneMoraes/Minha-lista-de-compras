@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { FontAwesome6 } from '@expo/vector-icons';
 import { AppColors } from '../StyleSheet/Colors';
+import { recordAppErrorLog } from '../../src/services/diagnosticLogService';
 
 export default class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -15,6 +16,11 @@ export default class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, errorInfo) {
     console.error('ErrorBoundary capturou um erro de renderização:', error, errorInfo);
+    recordAppErrorLog({
+      scope: 'Crash de Renderização (ErrorBoundary)',
+      message: error?.message || String(error || 'Erro de renderização'),
+      stack: errorInfo?.componentStack || error?.stack || '',
+    }).catch(() => {});
   }
 
   handleRetry = () => {

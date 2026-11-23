@@ -21,9 +21,11 @@ import ConfirmModal from '../../../components/modals/ShoppingModals/ConfirmModal
 import OcrProgressModal from '../../../components/modals/ShoppingModals/OcrProgressModal';
 import TagPhotoPreviewModal from '../../../components/modals/ShoppingModals/TagPhotoPreviewModal';
 import * as ImagePicker from 'expo-image-picker';
+import * as LegacyFileSystem from 'expo-file-system/legacy';
 import CameraCaptureModal from '../../../components/modals/ShoppingModals/CameraCaptureModal';
 import NativeOcrBridge from '../../../components/common/NativeOcrBridge';
 import { recognizeShelfLabel } from '../../services/labelOcr';
+import { identificarProdutoDaEtiqueta } from '../../services/productLookupService';
 import {
   saveCompressedTagPhoto,
   deleteTagPhotoFile,
@@ -257,6 +259,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
 
   const [isOcrRunning, setIsOcrRunning] = useState(false);
   const [ocrProgress, setOcrProgress] = useState(0);
+  const [ocrStatusMessage, setOcrStatusMessage] = useState('');
   const [ocrImageUri, setOcrImageUri] = useState(null);
   const ocrCancelledRef = useRef(false);
   const [pendingPriceChoice, setPendingPriceChoice] = useState(null);
@@ -420,11 +423,12 @@ export default function ListaDetalhesScreen({ route, navigation }) {
     });
   }, [list, colors, navigation, openSettings]);
 
-  const processLabelImage = async ({ uri, base64 }) => {
+  const processLabelImage = async ({ uri, base64, barcode: nativeBarcode = '' }) => {
     if (!uri) return;
     ocrCancelledRef.current = false;
     setOcrImageUri(uri);
     setOcrProgress(0);
+    setOcrStatusMessage('');
     setIsOcrRunning(true);
     setBanner(null);
 
@@ -447,9 +451,79 @@ export default function ListaDetalhesScreen({ route, navigation }) {
       return;
     }
 
+    // Prioriza o EAN lido nativamente pela câmera (CameraView) sobre o fallback de OCR
+    const cleanNativeBarcode = String(nativeBarcode || '').replace(/\D/g, '');
+    const resolvedBarcode = cleanNativeBarcode || extracted.barcode || '';
+
+    // Hybrid Open Food Facts lookup (cached + 4s timeout + offline fallback)
+    let enrichedName = extracted.name || '';
+    let enrichedCategory = extracted.category || 'Outros';
+    let enrichedOrigin = 'ocr_local';
+    if (
+      !reminderTemplate &&
+      (resolvedBarcode || extracted.name || extracted.rawText)
+    ) {
+      setOcrStatusMessage('Identificando produto...');
+      try {
+        const enriched = await identificarProdutoDaEtiqueta({
+          rawText: extracted.name || extracted.rawText || '',
+          barcode: resolvedBarcode,
+        });
+        if (!ocrCancelledRef.current && enriched) {
+          enrichedOrigin = enriched.origem || 'ocr_local';
+          if (
+            (enriched.origem === 'api' || enriched.origem === 'cache') &&
+            enriched.nome
+          ) {
+            const parts = [enriched.nome];
+            const lowerBase = enriched.nome.toLowerCase();
+            if (
+              enriched.marca &&
+              !lowerBase.includes(enriched.marca.toLowerCase())
+            ) {
+              parts.push(enriched.marca);
+            }
+            if (
+              enriched.quantidade &&
+              !lowerBase.includes(enriched.quantidade.toLowerCase())
+            ) {
+              parts.push(enriched.quantidade);
+            }
+            enrichedName = parts.join(' ').replace(/\s+/g, ' ').trim();
+          }
+          if (
+            enriched.categoriaSugerida &&
+            enriched.categoriaSugerida !== 'Outros'
+          ) {
+            enrichedCategory = enriched.categoriaSugerida;
+          }
+        }
+      } catch {
+        // Keep local OCR values on lookup failure
+      }
+    }
+
+    // Immediately clean up temporary cropped OCR cache file if permanent compressed photo was saved
+    if (
+      savedPhoto?.photoFilename &&
+      uri &&
+      LegacyFileSystem.cacheDirectory &&
+      uri.startsWith(LegacyFileSystem.cacheDirectory)
+    ) {
+      LegacyFileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+    }
+
+    if (ocrCancelledRef.current) {
+      if (savedPhoto?.photoFilename) {
+        deleteTagPhotoFile(savedPhoto.photoFilename).catch(() => {});
+      }
+      return;
+    }
+
     pendingDraftPhotoRef.current = savedPhoto?.photoFilename || null;
 
     setIsOcrRunning(false);
+    setOcrStatusMessage('');
     setOcrImageUri(null);
 
     const detectedPrices = Array.isArray(extracted.detectedPrices)
@@ -460,12 +534,16 @@ export default function ListaDetalhesScreen({ route, navigation }) {
       ? {
           photoFilename: savedPhoto.photoFilename,
           photoCapturedAt: savedPhoto.photoCapturedAt,
+          lookupOrigin: enrichedOrigin,
         }
-      : {};
+      : {
+          tempPhotoUri: uri,
+          lookupOrigin: enrichedOrigin,
+        };
 
     const draftItem = reminderTemplate
       ? {
-          name: reminderTemplate.name || extracted.name || '',
+          name: reminderTemplate.name || enrichedName || '',
           price:
             detectedPrices.length > 0
               ? detectedPrices[0]
@@ -475,7 +553,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
           quantity: Number(reminderTemplate.quantity) || 1,
           unit: reminderTemplate.unit || extracted.unit || 'un',
           category: normalizeCategoryName(
-            reminderTemplate.category || extracted.category || 'Outros'
+            reminderTemplate.category || enrichedCategory || 'Outros'
           ),
           description:
             reminderTemplate.notes ?? reminderTemplate.description ?? '',
@@ -483,7 +561,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
           ...photoFields,
         }
       : {
-          name: extracted.name || '',
+          name: enrichedName || '',
           price:
             detectedPrices.length > 0
               ? detectedPrices[0]
@@ -492,7 +570,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
                 : 0,
           quantity: 1,
           unit: extracted.unit || 'un',
-          category: normalizeCategoryName(extracted.category || 'Outros'),
+          category: normalizeCategoryName(enrichedCategory || 'Outros'),
           description: '',
           sourceReminderId: null,
           ...photoFields,
@@ -566,68 +644,21 @@ export default function ListaDetalhesScreen({ route, navigation }) {
       return;
     }
 
-    try {
-      const perm = await ImagePicker.requestCameraPermissionsAsync();
-      if (!perm.granted) {
-        pendingReminderForCameraRef.current = null;
-        setBanner({
-          type: 'error',
-          text: 'Permissão da câmera negada nas configurações do aparelho.',
-        });
-        return;
-      }
-
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ['images'],
-        allowsEditing: false,
-        quality: 1,
-      });
-
-      if (result.canceled || !result.assets || !result.assets[0]) {
-        pendingReminderForCameraRef.current = null;
-        return;
-      }
-
-      const asset = result.assets[0];
-      let photoW = Number(asset.width) || 0;
-      let photoH = Number(asset.height) || 0;
-
-      if (!photoW || !photoH) {
-        await new Promise((resolve) => {
-          Image.getSize(
-            asset.uri,
-            (w, h) => {
-              photoW = w;
-              photoH = h;
-              resolve();
-            },
-            () => resolve()
-          );
-        });
-      }
-
-      setCameraInitialPhoto({
-        uri: asset.uri,
-        width: photoW || 1200,
-        height: photoH || 1600,
-      });
-      setIsCameraModalVisible(true);
-    } catch (err) {
-      console.warn('Erro ao abrir câmera nativa do celular:', err);
-      setCameraInitialPhoto(null);
-      setIsCameraModalVisible(true);
-    }
+    // Abre a câmera nativa embutida (expo-camera) com leitor de código de barras EAN simultâneo
+    setCameraInitialPhoto(null);
+    setIsCameraModalVisible(true);
   };
 
-  const handleCameraConfirmed = async ({ uri, base64 }) => {
+  const handleCameraConfirmed = async ({ uri, base64, barcode = '' }) => {
     setIsCameraModalVisible(false);
     setCameraInitialPhoto(null);
-    await processLabelImage({ uri, base64 });
+    await processLabelImage({ uri, base64, barcode });
   };
 
   const handleCancelOcr = () => {
     ocrCancelledRef.current = true;
     setIsOcrRunning(false);
+    setOcrStatusMessage('');
     setOcrImageUri(null);
   };
 
@@ -1233,6 +1264,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
         visible={isOcrRunning}
         imageUri={ocrImageUri}
         progress={ocrProgress}
+        statusMessage={ocrStatusMessage}
         onCancel={handleCancelOcr}
       />
 

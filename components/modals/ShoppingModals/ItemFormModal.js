@@ -6,6 +6,7 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
+  Image,
   StyleSheet,
 } from 'react-native';
 import { FontAwesome6 } from '@expo/vector-icons';
@@ -51,6 +52,7 @@ export default function ItemFormModal({
   const [description, setDescription] = useState('');
   const [error, setError] = useState('');
   const [showPhotoPreview, setShowPhotoPreview] = useState(false);
+  const [photoLoadError, setPhotoLoadError] = useState(false);
 
   useEffect(() => {
     loadLearnedCategories();
@@ -92,6 +94,7 @@ export default function ItemFormModal({
         setDescription('');
       }
       setError('');
+      setPhotoLoadError(false);
     }
   }, [visible, initialItem]);
 
@@ -169,9 +172,12 @@ export default function ItemFormModal({
 
   const modalTitle =
     customTitle || (mode === 'manual' ? 'Adicionar Produto' : 'Editar Item');
-  const savedPhotoUri = initialItem?.photoFilename
-    ? getTagPhotoUri(initialItem.photoFilename)
-    : null;
+  const savedPhotoUri =
+    (initialItem?.photoFilename
+      ? getTagPhotoUri(initialItem.photoFilename)
+      : null) ||
+    initialItem?.tempPhotoUri ||
+    null;
   const inputThemeStyle = {
     backgroundColor: colors.inputBackground,
     borderColor: colors.borderColor,
@@ -203,40 +209,82 @@ export default function ItemFormModal({
             {modalTitle}
           </Text>
 
-          {savedPhotoUri ? (
+          {savedPhotoUri && !photoLoadError ? (
             <TouchableOpacity
-              activeOpacity={0.8}
+              activeOpacity={0.88}
               onPress={() => setShowPhotoPreview(true)}
               style={{
                 width: '100%',
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-                paddingVertical: 9,
-                paddingHorizontal: 12,
-                marginBottom: 10,
-                backgroundColor: colors.verdeSuave,
-                borderColor: colors.principal,
-                borderWidth: 1,
-                borderRadius: radiusButton,
+                height: 90,
+                marginBottom: 12,
+                borderRadius: radiusCard,
+                borderWidth,
+                borderColor: colors.borderColor,
+                backgroundColor: colors.surfaceMuted,
+                overflow: 'hidden',
+                position: 'relative',
               }}
-              accessibilityLabel="Ver foto da etiqueta salva"
+              accessibilityLabel="Ampliar foto da etiqueta"
             >
-              <FontAwesome6
-                name="image"
-                size={14}
-                color={colors.badgeText || colors.principal}
-                style={{ marginRight: 8 }}
+              <Image
+                source={{ uri: savedPhotoUri }}
+                resizeMode="cover"
+                style={{ width: '100%', height: '100%' }}
+                onError={() => setPhotoLoadError(true)}
               />
-              <Text
+              {mode === 'ocr' || initialItem?.lookupOrigin ? (
+                <View
+                  style={{
+                    position: 'absolute',
+                    left: 8,
+                    bottom: 8,
+                    width: 28,
+                    height: 28,
+                    borderRadius: 14,
+                    backgroundColor: 'rgba(0,0,0,0.32)',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                  accessibilityLabel={
+                    initialItem?.lookupOrigin === 'api'
+                      ? 'Origem: Open Food Facts (Online)'
+                      : initialItem?.lookupOrigin === 'cache'
+                        ? 'Origem: Cache Local'
+                        : 'Origem: Leitura Local (OCR)'
+                  }
+                >
+                  <FontAwesome6
+                    name={
+                      initialItem?.lookupOrigin === 'api'
+                        ? 'globe'
+                        : initialItem?.lookupOrigin === 'cache'
+                          ? 'bolt'
+                          : 'camera'
+                    }
+                    size={12}
+                    color="rgba(255,255,255,0.92)"
+                  />
+                </View>
+              ) : null}
+              <View
                 style={{
-                  fontSize: 13.5,
-                  fontWeight: 'bold',
-                  color: colors.badgeText || colors.principal,
+                  position: 'absolute',
+                  right: 8,
+                  bottom: 8,
+                  width: 30,
+                  height: 30,
+                  borderRadius: 15,
+                  backgroundColor: 'rgba(0,0,0,0.28)',
+                  justifyContent: 'center',
+                  alignItems: 'center',
                 }}
               >
-                Ver foto da etiqueta
-              </Text>
+                <FontAwesome6
+                  name="magnifying-glass-plus"
+                  size={13}
+                  color="rgba(255,255,255,0.9)"
+                />
+              </View>
             </TouchableOpacity>
           ) : null}
 
@@ -248,6 +296,7 @@ export default function ItemFormModal({
                   backgroundColor: ocrHint
                     ? colors.warningSoft
                     : colors.verdeSuave,
+                  borderRadius: Math.min(10, radiusButton),
                 },
               ]}
             >
@@ -264,6 +313,31 @@ export default function ItemFormModal({
               >
                 {ocrHint || 'Etiqueta lida! Confira os dados antes de salvar.'}
               </Text>
+              {!(savedPhotoUri && !photoLoadError) ? (
+                <View
+                  style={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: 12,
+                    backgroundColor: 'rgba(0,0,0,0.25)',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginLeft: 8,
+                  }}
+                >
+                  <FontAwesome6
+                    name={
+                      initialItem?.lookupOrigin === 'api'
+                        ? 'globe'
+                        : initialItem?.lookupOrigin === 'cache'
+                          ? 'bolt'
+                          : 'camera'
+                    }
+                    size={11}
+                    color="#FFFFFF"
+                  />
+                </View>
+              ) : null}
             </View>
           ) : null}
 

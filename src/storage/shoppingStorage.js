@@ -83,6 +83,7 @@ export const DEFAULT_SETTINGS = {
   darkMode: false,
   cameraCaptureMode: 'partial', // fixed default: partial capture
   cameraSource: 'native',
+  cameraSoundEnabled: true,
   saveTagPhotos: true,
   autoDeleteTagPhotos: false,
   tagPhotoRetentionDays: DEFAULT_RETENTION_DAYS,

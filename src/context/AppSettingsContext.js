@@ -34,6 +34,7 @@ const AppSettingsContext = createContext({
   darkMode: false,
   cameraCaptureMode: 'partial',
   cameraSource: 'native',
+  cameraSoundEnabled: true,
   saveTagPhotos: true,
   autoDeleteTagPhotos: false,
   tagPhotoRetentionDays: DEFAULT_RETENTION_DAYS,
@@ -126,6 +127,9 @@ export function AppSettingsProvider({ children }) {
 
   const updatePhotoSettings = useCallback(async (partial) => {
     const patch = {};
+    if (partial?.cameraSoundEnabled !== undefined) {
+      patch.cameraSoundEnabled = Boolean(partial.cameraSoundEnabled);
+    }
     if (partial?.saveTagPhotos !== undefined) {
       patch.saveTagPhotos = Boolean(partial.saveTagPhotos);
     }
@@ -201,6 +205,10 @@ export function AppSettingsProvider({ children }) {
         darkMode: activeTheme.isDark,
         cameraCaptureMode: 'partial',
         cameraSource: settings.cameraSource || 'native',
+        cameraSoundEnabled:
+          settings.cameraSoundEnabled !== undefined
+            ? Boolean(settings.cameraSoundEnabled)
+            : true,
         saveTagPhotos:
           settings.saveTagPhotos !== undefined
             ? Boolean(settings.saveTagPhotos)

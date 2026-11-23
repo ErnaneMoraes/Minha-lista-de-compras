@@ -9,7 +9,88 @@ import {
   loadReminderLists,
   validateBackupPayload,
 } from '../storage/shoppingStorage';
-import { exportTagPhotosAsBase64Map } from './tagPhotoStorage';
+import {
+  exportTagPhotosAsBase64Map,
+  TAG_PHOTOS_DIR,
+} from './tagPhotoStorage';
+import {
+  getDiagnosticLogs,
+  formatDiagnosticLogsAsText,
+  getAnonymousDeviceContext,
+} from './diagnosticLogService';
+
+export async function buildDiagnosticZipBundle() {
+  const [logs, lists, history, reminders] = await Promise.all([
+    getDiagnosticLogs(),
+    loadLists(),
+    loadHistory(),
+    loadReminderLists(),
+  ]);
+
+  // Coleta todas as fotos salvas em tag_photos/ (tanto referenciadas nos itens quanto existentes no diretório)
+  const filenameSet = new Set();
+  for (const list of lists) {
+    const items = Array.isArray(list?.items) ? list.items : [];
+    for (const item of items) {
+      if (item?.photoFilename) {
+        filenameSet.add(item.photoFilename);
+      }
+    }
+  }
+  if (Platform.OS !== 'web' && TAG_PHOTOS_DIR) {
+    try {
+      const dirInfo = await LegacyFileSystem.getInfoAsync(TAG_PHOTOS_DIR);
+      if (dirInfo.exists && dirInfo.isDirectory) {
+        const files = await LegacyFileSystem.readDirectoryAsync(TAG_PHOTOS_DIR);
+        for (const f of files) {
+          if (/^tag_.*\.jpe?g$/i.test(f)) {
+            filenameSet.add(f);
+          }
+        }
+      }
+    } catch {
+      // ignora erro de listagem e usa apenas as referências das listas
+    }
+  }
+
+  const photosMap = await exportTagPhotosAsBase64Map(Array.from(filenameSet));
+  const photoEntries = Object.entries(photosMap);
+
+  const diagnosticTxt = formatDiagnosticLogsAsText(logs);
+  const listsJson = {
+    appId: BACKUP_APP_ID,
+    exportedAt: new Date().toISOString(),
+    deviceContext: getAnonymousDeviceContext(),
+    privacyNote:
+      'Exportação técnica anônima (LGPD): sem dados pessoais, contas, IP ou identificadores únicos.',
+    data: {
+      lists,
+      history,
+      reminders,
+    },
+  };
+
+  const zip = new JSZip();
+  zip.file('logs_diagnostico.txt', diagnosticTxt);
+  zip.file('dados_listas.json', JSON.stringify(listsJson, null, 2));
+
+  const folder = zip.folder('etiquetas');
+  for (const [filename, base64] of photoEntries) {
+    folder.file(filename, base64, { base64: true });
+  }
+
+  const base64 = await zip.generateAsync({
+    type: 'base64',
+    compression: 'DEFLATE',
+    compressionOptions: { level: 6 },
+  });
+
+  return {
+    base64,
+    logCount: logs.length,
+    photoCount: photoEntries.length,
+  };
+}
 
 export async function buildFullZipBackup() {
   const [lists, history, reminders] = await Promise.all([
