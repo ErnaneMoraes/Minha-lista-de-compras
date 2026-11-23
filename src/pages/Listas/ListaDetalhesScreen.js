@@ -638,13 +638,17 @@ export default function ListaDetalhesScreen({ route, navigation }) {
     pendingReminderForCameraRef.current =
       reminderTemplate && reminderTemplate.name ? reminderTemplate : null;
     setBanner(null);
+    // Limpa qualquer estado residual da leitura anterior para evitar vazamento de preço/nome
+    setEditingItem(null);
+    setPendingPriceChoice(null);
+    setOcrHint('');
 
     if (Platform.OS === 'web') {
       handleOpenWebCamera();
       return;
     }
 
-    // Abre a câmera nativa embutida (expo-camera) com leitor de código de barras EAN simultâneo
+    // Abre a câmera nativa embutida (expo-camera) com leitor de código de barras EAN-13/EAN-8 simultâneo
     setCameraInitialPhoto(null);
     setIsCameraModalVisible(true);
   };

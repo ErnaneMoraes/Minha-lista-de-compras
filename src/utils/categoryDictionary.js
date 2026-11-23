@@ -346,6 +346,9 @@ const RAW_CATEGORY_KEYWORDS = {
     'talco antisseptico',
     'lenço de papel',
     'lenco de papel',
+    'lenco',
+    'leite de rosas',
+    'kiss',
     'saboneteira',
     'bucha vegetal',
     'esponja de banho',
@@ -603,6 +606,7 @@ const RAW_CATEGORY_KEYWORDS = {
     'suco de laranja',
     'nectar',
     'suco em po',
+    'del valle',
     'tang',
     'clight',
     'energetico',
@@ -619,6 +623,9 @@ const RAW_CATEGORY_KEYWORDS = {
     'antarctica',
     'amstel',
     'stella artois',
+    'stella',
+    'artois',
+    'imperio',
     'budweiser',
     'corona',
     'spaten',
@@ -806,6 +813,11 @@ const RAW_CATEGORY_KEYWORDS = {
     'agua e sal',
     'wafer',
     'cookies',
+    'bis',
+    'bis limao',
+    'lacta',
+    'bauducco',
+    'mendorato',
     'salgadinho',
     'batata palha',
     'amendoim',
@@ -851,7 +863,13 @@ for (const [category, keywords] of Object.entries(RAW_CATEGORY_KEYWORDS)) {
     }
   }
 }
-BUILTIN_ENTRIES.sort((a, b) => b.length - a.length);
+BUILTIN_ENTRIES.sort((a, b) => {
+  if (b.length !== a.length) return b.length - a.length;
+  // Evita que sabores de frutas (ex: "limao" em "Bis Limão Lacta") vençam marcas/produtos industrializados no empate de tamanho
+  const aIsHorti = a.category === 'Hortifruti' ? 1 : 0;
+  const bIsHorti = b.category === 'Hortifruti' ? 1 : 0;
+  return aIsHorti - bIsHorti;
+});
 
 let learnedCache = {};
 let isLearnedLoaded = false;

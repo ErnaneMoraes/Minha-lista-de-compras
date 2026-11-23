@@ -801,82 +801,91 @@ export default function SettingsModal({
   });
   const appErrorCount = apiLogs.filter((l) => l.category === 'error').length;
 
-  const renderDeviceSummaryAndFilters = () => (
-    <View style={{ marginBottom: 10 }}>
+  const renderDeviceSummaryAndFilters = (showFilters = true) => (
+    <View style={{ marginBottom: 12 }}>
       <View
         style={{
           backgroundColor: colors.card,
           borderColor: colors.borderColor,
           borderWidth,
-          borderRadius: Math.min(10, radiusCard),
-          padding: 9,
-          marginBottom: 8,
+          borderRadius: Math.min(12, radiusCard),
+          padding: 11,
+          marginBottom: showFilters ? 10 : 0,
         }}
       >
         <Text
           style={{
-            fontSize: 11,
+            fontSize: 11.5,
             fontWeight: 'bold',
             color: colors.principal,
-            marginBottom: 2,
+            marginBottom: 3,
           }}
         >
-          Contexto Técnico Anônimo (LGPD)
+          Resumo Técnico do Aparelho (LGPD)
         </Text>
-        <Text style={{ fontSize: 11.5, color: colors.textoEscuro }}>
+        <Text
+          style={{
+            fontSize: 12,
+            color: colors.textoEscuro,
+            lineHeight: 17,
+          }}
+        >
           {deviceContextSummary}
         </Text>
         <Text
           style={{
             fontSize: 10.5,
             color: colors.textMuted,
-            marginTop: 2,
+            marginTop: 3,
           }}
+          numberOfLines={1}
         >
-          Nenhum dado pessoal, conta, IP ou identificador único é coletado.
+          Sem dados pessoais ou identificadores
         </Text>
       </View>
 
-      <View style={{ flexDirection: 'row', gap: 6 }}>
-        {[
-          { key: 'all', label: `Todos (${apiLogs.length})` },
-          { key: 'error', label: `Erros do App (${appErrorCount})` },
-          {
-            key: 'scanner',
-            label: `Leituras / API (${apiLogs.length - appErrorCount})`,
-          },
-        ].map((tab) => {
-          const active = logCategoryFilter === tab.key;
-          return (
-            <TouchableOpacity
-              key={tab.key}
-              activeOpacity={0.8}
-              onPress={() => setLogCategoryFilter(tab.key)}
-              style={{
-                flex: 1,
-                paddingVertical: 6,
-                paddingHorizontal: 6,
-                borderRadius: Math.min(8, radiusButton),
-                borderWidth: 1,
-                backgroundColor: active ? colors.principal : colors.card,
-                borderColor: active ? colors.principal : colors.borderColor,
-                alignItems: 'center',
-              }}
-            >
-              <Text
+      {showFilters ? (
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          {[
+            { key: 'all', label: `Todos (${apiLogs.length})` },
+            { key: 'error', label: `Erros (${appErrorCount})` },
+            {
+              key: 'scanner',
+              label: `Leituras (${apiLogs.length - appErrorCount})`,
+            },
+          ].map((tab) => {
+            const active = logCategoryFilter === tab.key;
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                activeOpacity={0.8}
+                onPress={() => setLogCategoryFilter(tab.key)}
                 style={{
-                  fontSize: 10.5,
-                  fontWeight: '700',
-                  color: active ? colors.textoPrincipal : colors.textoEscuro,
+                  flex: 1,
+                  paddingVertical: 7,
+                  paddingHorizontal: 6,
+                  borderRadius: Math.min(8, radiusButton),
+                  borderWidth: 1,
+                  backgroundColor: active ? colors.principal : colors.card,
+                  borderColor: active ? colors.principal : colors.borderColor,
+                  alignItems: 'center',
                 }}
-                numberOfLines={1}
               >
-                {tab.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+                <Text
+                  style={{
+                    fontSize: 11,
+                    fontWeight: '700',
+                    color: active ? colors.textoPrincipal : colors.textoEscuro,
+                  }}
+                  numberOfLines={1}
+                >
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      ) : null}
     </View>
   );
 
@@ -2842,97 +2851,141 @@ export default function SettingsModal({
                     { borderTopColor: colors.borderColor },
                   ]}
                 >
-                  {renderDeviceSummaryAndFilters()}
-                  {renderApiTesterBox()}
+                  {/* Bloco A — Resumo Técnico do Aparelho (LGPD) */}
+                  {renderDeviceSummaryAndFilters(false)}
 
-                  <View style={[styles.pillRow, { marginBottom: 8 }]}>
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      onPress={() => {
-                        refreshApiLogs();
-                        setShowFullScreenLogs(true);
-                      }}
-                      style={[
-                        styles.builderPill,
-                        {
-                          backgroundColor: colors.principal,
-                          borderColor: colors.principal,
-                          borderRadius: Math.min(10, radiusButton),
-                        },
-                      ]}
-                    >
-                      <Text
+                  {/* Bloco B — Ações Rápidas (Grade 2x2 com espaçamento amplo) */}
+                  <View style={{ gap: 10, marginBottom: 14 }}>
+                    <View style={{ flexDirection: 'row', gap: 10 }}>
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => {
+                          refreshApiLogs();
+                          setShowFullScreenLogs(true);
+                        }}
                         style={[
-                          styles.builderPillText,
-                          { color: colors.textoPrincipal },
+                          styles.diagGridBtn,
+                          {
+                            backgroundColor: colors.card,
+                            borderColor: colors.principal,
+                            borderRadius: Math.min(10, radiusButton),
+                          },
                         ]}
                       >
-                        Ver Tela Cheia
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      onPress={handleExportApiLogs}
-                      style={[
-                        styles.builderPill,
-                        {
-                          backgroundColor: colors.card,
-                          borderColor: colors.principal,
-                          borderRadius: Math.min(10, radiusButton),
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.builderPillText,
-                          { color: colors.principal },
-                        ]}
-                      >
-                        Exportar Logs (.txt)
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  <View style={[styles.pillRow, { marginBottom: 8 }]}>
-                    <TouchableOpacity
-                      activeOpacity={0.85}
-                      disabled={isDiagZipBusy}
-                      onPress={handleExportDiagnosticZip}
-                      style={[
-                        styles.builderPill,
-                        {
-                          backgroundColor: colors.verdeSuave,
-                          borderColor: colors.principal,
-                          borderRadius: Math.min(10, radiusButton),
-                          flexDirection: 'row',
-                          gap: 6,
-                          opacity: isDiagZipBusy ? 0.65 : 1,
-                        },
-                      ]}
-                    >
-                      {isDiagZipBusy ? (
-                        <ActivityIndicator
-                          size="small"
+                        <FontAwesome6
+                          name="expand"
+                          size={12}
                           color={colors.principal}
                         />
-                      ) : (
-                        <FontAwesome6
-                          name="file-zipper"
-                          size={13}
-                          color={colors.badgeText || colors.principal}
-                        />
-                      )}
-                      <Text
+                        <Text
+                          style={[
+                            styles.diagGridBtnText,
+                            { color: colors.principal },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          Tela Cheia
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        activeOpacity={0.85}
+                        disabled={isDiagZipBusy}
+                        onPress={handleExportDiagnosticZip}
                         style={[
-                          styles.builderPillText,
-                          { color: colors.badgeText || colors.principal },
+                          styles.diagGridBtn,
+                          {
+                            backgroundColor: colors.principal,
+                            borderColor: colors.principal,
+                            borderRadius: Math.min(10, radiusButton),
+                            opacity: isDiagZipBusy ? 0.65 : 1,
+                          },
                         ]}
                       >
-                        {isDiagZipBusy
-                          ? 'Gerando Pacote (.zip)...'
-                          : 'Exportar Tudo (.zip)'}
-                      </Text>
-                    </TouchableOpacity>
+                        {isDiagZipBusy ? (
+                          <ActivityIndicator
+                            size="small"
+                            color={colors.textoPrincipal}
+                          />
+                        ) : (
+                          <FontAwesome6
+                            name="file-zipper"
+                            size={12}
+                            color={colors.textoPrincipal}
+                          />
+                        )}
+                        <Text
+                          style={[
+                            styles.diagGridBtnText,
+                            { color: colors.textoPrincipal },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {isDiagZipBusy ? 'Gerando...' : 'Exportar Tudo (.zip)'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={{ flexDirection: 'row', gap: 10 }}>
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={handleExportApiLogs}
+                        style={[
+                          styles.diagGridBtn,
+                          {
+                            backgroundColor: colors.card,
+                            borderColor: colors.borderColor,
+                            borderRadius: Math.min(10, radiusButton),
+                          },
+                        ]}
+                      >
+                        <FontAwesome6
+                          name="file-lines"
+                          size={12}
+                          color={colors.textoEscuro}
+                        />
+                        <Text
+                          style={[
+                            styles.diagGridBtnText,
+                            { color: colors.textoEscuro },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          Exportar Logs (.txt)
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={async () => {
+                          await clearApiDiagnosticLogs();
+                          setApiLogs([]);
+                        }}
+                        style={[
+                          styles.diagGridBtn,
+                          {
+                            backgroundColor: colors.dangerSoft,
+                            borderColor: colors.logoutRed,
+                            borderRadius: Math.min(10, radiusButton),
+                          },
+                        ]}
+                      >
+                        <FontAwesome6
+                          name="trash-can"
+                          size={12}
+                          color={colors.logoutRed}
+                        />
+                        <Text
+                          style={[
+                            styles.diagGridBtnText,
+                            { color: colors.logoutRed },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          Limpar Logs
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
 
                   {diagZipFeedback ? (
@@ -2944,7 +2997,7 @@ export default function SettingsModal({
                           diagZipFeedback.type === 'error'
                             ? colors.logoutRed
                             : colors.principal,
-                        marginBottom: 8,
+                        marginBottom: 12,
                         textAlign: 'center',
                       }}
                     >
@@ -2952,73 +3005,71 @@ export default function SettingsModal({
                     </Text>
                   ) : null}
 
-                  <View style={[styles.pillRow, { marginBottom: 10 }]}>
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      onPress={refreshApiLogs}
-                      style={[
-                        styles.builderPill,
-                        {
-                          backgroundColor: colors.card,
-                          borderColor: colors.borderColor,
-                          borderRadius: Math.min(10, radiusButton),
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.builderPillText,
-                          { color: colors.textoEscuro },
-                        ]}
-                      >
-                        Atualizar
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      onPress={async () => {
-                        await clearApiDiagnosticLogs();
-                        setApiLogs([]);
-                      }}
-                      style={[
-                        styles.builderPill,
-                        {
-                          backgroundColor: colors.dangerSoft,
-                          borderColor: colors.logoutRed,
-                          borderRadius: Math.min(10, radiusButton),
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.builderPillText,
-                          { color: colors.logoutRed },
-                        ]}
-                      >
-                        Limpar Logs
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
+                  {/* Bloco C — Últimos 3 Registros */}
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 'bold',
+                      color: colors.textoEscuro,
+                      marginBottom: 8,
+                    }}
+                  >
+                    Últimos Registros
+                  </Text>
 
-                  {filteredDiagnosticLogs.length === 0 ? (
+                  {apiLogs.length === 0 ? (
                     <Text
                       style={[
                         styles.sectionDesc,
-                        { color: colors.textMuted, textAlign: 'center', paddingVertical: 8 },
+                        {
+                          color: colors.textMuted,
+                          textAlign: 'center',
+                          paddingVertical: 10,
+                        },
                       ]}
                     >
-                      Nenhum evento registrado para este filtro.
+                      Nenhum evento registrado ainda.
                     </Text>
                   ) : (
-                    <ScrollView
-                      style={{ maxHeight: 250 }}
-                      nestedScrollEnabled={true}
-                      showsVerticalScrollIndicator={true}
-                    >
-                      {filteredDiagnosticLogs.map((log, idx) =>
-                        renderDiagnosticLogCard(log, idx, false)
-                      )}
-                    </ScrollView>
+                    <View style={{ gap: 2 }}>
+                      {apiLogs
+                        .slice(0, 3)
+                        .map((log, idx) =>
+                          renderDiagnosticLogCard(log, idx, false)
+                        )}
+
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => {
+                          refreshApiLogs();
+                          setShowFullScreenLogs(true);
+                        }}
+                        style={{
+                          paddingVertical: 9,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexDirection: 'row',
+                          gap: 6,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 12.5,
+                            fontWeight: 'bold',
+                            color: colors.principal,
+                          }}
+                        >
+                          Ver todos os {apiLogs.length}{' '}
+                          {apiLogs.length === 1 ? 'registro' : 'registros'} em
+                          Tela Cheia
+                        </Text>
+                        <FontAwesome6
+                          name="chevron-right"
+                          size={11}
+                          color={colors.principal}
+                        />
+                      </TouchableOpacity>
+                    </View>
                   )}
                 </View>
               ) : null}
@@ -3392,19 +3443,19 @@ export default function SettingsModal({
           <View
             style={{
               paddingHorizontal: 14,
-              paddingVertical: 10,
+              paddingVertical: 12,
               backgroundColor: colors.card,
               borderBottomWidth: 1,
               borderBottomColor: colors.borderColor,
-              gap: 8,
+              gap: 10,
             }}
           >
-            <View style={{ flexDirection: 'row', gap: 8 }}>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
               <TouchableOpacity
                 activeOpacity={0.8}
                 onPress={refreshApiLogs}
                 style={[
-                  styles.builderPill,
+                  styles.diagGridBtn,
                   {
                     backgroundColor: colors.surfaceMuted,
                     borderColor: colors.borderColor,
@@ -3412,31 +3463,79 @@ export default function SettingsModal({
                   },
                 ]}
               >
+                <FontAwesome6
+                  name="rotate"
+                  size={12}
+                  color={colors.textoEscuro}
+                />
                 <Text
-                  style={[styles.builderPillText, { color: colors.textoEscuro }]}
+                  style={[styles.diagGridBtnText, { color: colors.textoEscuro }]}
+                  numberOfLines={1}
                 >
                   Atualizar
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={handleExportApiLogs}
+                activeOpacity={0.85}
+                disabled={isDiagZipBusy}
+                onPress={handleExportDiagnosticZip}
                 style={[
-                  styles.builderPill,
+                  styles.diagGridBtn,
                   {
                     backgroundColor: colors.principal,
                     borderColor: colors.principal,
                     borderRadius: Math.min(10, radiusButton),
+                    opacity: isDiagZipBusy ? 0.65 : 1,
                   },
                 ]}
               >
+                {isDiagZipBusy ? (
+                  <ActivityIndicator
+                    size="small"
+                    color={colors.textoPrincipal}
+                  />
+                ) : (
+                  <FontAwesome6
+                    name="file-zipper"
+                    size={12}
+                    color={colors.textoPrincipal}
+                  />
+                )}
                 <Text
                   style={[
-                    styles.builderPillText,
+                    styles.diagGridBtnText,
                     { color: colors.textoPrincipal },
                   ]}
+                  numberOfLines={1}
                 >
-                  Exportar Logs
+                  {isDiagZipBusy ? 'Gerando...' : 'Exportar Tudo (.zip)'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={handleExportApiLogs}
+                style={[
+                  styles.diagGridBtn,
+                  {
+                    backgroundColor: colors.card,
+                    borderColor: colors.borderColor,
+                    borderRadius: Math.min(10, radiusButton),
+                  },
+                ]}
+              >
+                <FontAwesome6
+                  name="file-lines"
+                  size={12}
+                  color={colors.textoEscuro}
+                />
+                <Text
+                  style={[styles.diagGridBtnText, { color: colors.textoEscuro }]}
+                  numberOfLines={1}
+                >
+                  Exportar Logs (.txt)
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -3446,7 +3545,7 @@ export default function SettingsModal({
                   setApiLogs([]);
                 }}
                 style={[
-                  styles.builderPill,
+                  styles.diagGridBtn,
                   {
                     backgroundColor: colors.dangerSoft,
                     borderColor: colors.logoutRed,
@@ -3454,50 +3553,19 @@ export default function SettingsModal({
                   },
                 ]}
               >
+                <FontAwesome6
+                  name="trash-can"
+                  size={12}
+                  color={colors.logoutRed}
+                />
                 <Text
-                  style={[styles.builderPillText, { color: colors.logoutRed }]}
+                  style={[styles.diagGridBtnText, { color: colors.logoutRed }]}
+                  numberOfLines={1}
                 >
                   Limpar Logs
                 </Text>
               </TouchableOpacity>
             </View>
-
-            <TouchableOpacity
-              activeOpacity={0.85}
-              disabled={isDiagZipBusy}
-              onPress={handleExportDiagnosticZip}
-              style={[
-                styles.builderPill,
-                {
-                  backgroundColor: colors.verdeSuave,
-                  borderColor: colors.principal,
-                  borderRadius: Math.min(10, radiusButton),
-                  flexDirection: 'row',
-                  gap: 6,
-                  opacity: isDiagZipBusy ? 0.65 : 1,
-                },
-              ]}
-            >
-              {isDiagZipBusy ? (
-                <ActivityIndicator size="small" color={colors.principal} />
-              ) : (
-                <FontAwesome6
-                  name="file-zipper"
-                  size={13}
-                  color={colors.badgeText || colors.principal}
-                />
-              )}
-              <Text
-                style={[
-                  styles.builderPillText,
-                  { color: colors.badgeText || colors.principal },
-                ]}
-              >
-                {isDiagZipBusy
-                  ? 'Gerando Pacote (.zip)...'
-                  : 'Exportar Tudo (.zip) — Logs + Listas + Fotos'}
-              </Text>
-            </TouchableOpacity>
 
             {diagZipFeedback ? (
               <Text
@@ -3520,7 +3588,7 @@ export default function SettingsModal({
             contentContainerStyle={{ padding: 14, paddingBottom: 32 }}
             showsVerticalScrollIndicator={true}
           >
-            {renderDeviceSummaryAndFilters()}
+            {renderDeviceSummaryAndFilters(true)}
             {renderApiTesterBox()}
 
             {filteredDiagnosticLogs.length === 0 ? (
@@ -3746,6 +3814,21 @@ const styles = StyleSheet.create({
   },
   builderPillText: {
     fontSize: 12.5,
+    fontWeight: '700',
+  },
+  diagGridBtn: {
+    flex: 1,
+    minHeight: 40,
+    paddingVertical: 9,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  diagGridBtnText: {
+    fontSize: 12,
     fontWeight: '700',
   },
   swatchGrid: {

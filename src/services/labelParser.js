@@ -926,6 +926,92 @@ function recoverCondensedGroceryWords(text) {
   return out;
 }
 
+const VALID_SHORT_PT_TOKENS = new Set([
+  'de',
+  'da',
+  'do',
+  'em',
+  'no',
+  'na',
+  'ao',
+  'os',
+  'as',
+  'e',
+  'a',
+  'o',
+  'un',
+  'kg',
+  'ml',
+  'lt',
+  'g',
+  'l',
+  'x',
+  'c',
+  's',
+  'n',
+]);
+
+export function isReadableProductTitle(text) {
+  const clean = normalizeText(text);
+  if (!clean) return false;
+  const ascii = stripAccents(clean);
+  const alphaOnly = ascii.replace(/[^a-zA-Z]/g, '');
+  if (alphaOnly.length < 4) return false;
+
+  const vowels = (alphaOnly.match(/[aeiouyAEIOUY]/g) || []).length;
+  const vowelRatio = vowels / alphaOnly.length;
+  if (vowelRatio < 0.24 || vowelRatio > 0.78) return false;
+
+  const tokens = ascii.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return false;
+
+  let badTokenCount = 0;
+  let goodAlphaWordCount = 0;
+
+  for (const tok of tokens) {
+    const lower = tok.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!lower) continue;
+
+    // Preserva medidas válidas (ex: 500ml, 1kg, 3l, 100g, 12un, 100%)
+    if (/^\d+(?:ml|l|lt|kg|g|gr|mg|un|pct|cx|x)?$/i.test(lower)) {
+      if (lower.length === 1 && /^\d$/.test(lower)) {
+        // Dígito isolado como "1" em "Tipo 1" é tolerado se houver palavras boas
+      }
+      continue;
+    }
+
+    // Mistura de letra + dígito fora de medida padrão (ex: "G0fa", "B3x")
+    if (/[a-z]/.test(lower) && /\d/.test(lower)) {
+      if (!/^(?:rap10|omega3|zero|vit\d|c\d{1,2}|t\d)$/i.test(lower)) {
+        badTokenCount += 1;
+        continue;
+      }
+    }
+
+    if (lower.length <= 2) {
+      if (!VALID_SHORT_PT_TOKENS.has(lower)) {
+        badTokenCount += 1;
+      }
+      continue;
+    }
+
+    // Palavra de 3+ letras: checa ausência de vogais ou clusters impossíveis em português
+    const hasVowel = /[aeiouy]/.test(lower);
+    const has4Consonants = /[bcdfghjklmnpqrstvwxz]{4,}/.test(lower);
+    const has4Vowels = /[aeiou]{4,}/.test(lower);
+    const hasRepeated3 = /(.)\1{2,}/.test(lower);
+    if (!hasVowel || has4Consonants || has4Vowels || hasRepeated3) {
+      badTokenCount += 1;
+    } else {
+      goodAlphaWordCount += 1;
+    }
+  }
+
+  if (goodAlphaWordCount === 0) return false;
+  if (badTokenCount / tokens.length >= 0.4) return false;
+  return true;
+}
+
 function formatProductNameTitleCase(name) {
   if (!name) return '';
   const words = name.split(/\s+/).filter(Boolean);
@@ -1081,7 +1167,8 @@ function extractProductName(annotatedLines, imageHeight, priceRaw) {
       ? `${top.cleaned} ${nextCandidate.cleaned}`.replace(/\s+/g, ' ').trim()
       : top.cleaned;
 
-  return formatProductNameTitleCase(combined);
+  const formatted = formatProductNameTitleCase(combined);
+  return isReadableProductTitle(formatted) ? formatted : '';
 }
 
 export function detectUnitFromCleanText(nameText, cleanPriceAreaText) {

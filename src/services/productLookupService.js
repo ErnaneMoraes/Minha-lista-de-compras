@@ -11,7 +11,7 @@ import {
 
 export const OFF_CACHE_STORAGE_KEY = '@mlc_offline:off_product_cache';
 export const MAX_CACHE_ENTRIES = 300;
-const FETCH_TIMEOUT_MS = 4000;
+const FETCH_TIMEOUT_MS = 6500;
 const USER_AGENT = 'ListaComprasApp/1.0 (offline-first-scanner)';
 
 // ==========================================
@@ -47,15 +47,15 @@ const ABBREVIATION_MAP = [
 ];
 
 const OFF_TAG_CATEGORY_HINTS = [
-  { pattern: /(beverage|drink|soda|juice|water|beer|wine|refrigerante|suco|bebida|cerveja|agua)/i, category: 'Bebidas' },
-  { pattern: /(dair|milk|cheese|yogurt|butter|margarine|laticin|leite|queijo|iogurte|manteiga|requeij)/i, category: 'Frios e Laticínios' },
-  { pattern: /(meat|beef|pork|poultry|chicken|fish|sausage|ham|carne|frango|peixe|bovin|suin|linguic|presunt|acougue)/i, category: 'Açougue' },
-  { pattern: /(bread|bakery|cake|toast|pao|padaria|bolo|torrada)/i, category: 'Padaria' },
-  { pattern: /(fruit|vegetable|produce|fresh-plant|hortifruti|fruta|verdura|legume)/i, category: 'Hortifruti' },
-  { pattern: /(cleaning|detergent|laundry|bleach|limpeza|detergente|sabao|amaciante|desinfetante)/i, category: 'Limpeza' },
-  { pattern: /(hygiene|personal-care|shampoo|soap|toothpaste|deodorant|higiene|sabonete|creme-dental|desodorante)/i, category: 'Higiene Pessoal' },
+  { pattern: /(en:beers|en:sodas|en:juices|en:beverages|en:waters|beverage|drink|soda|juice|water|beer|wine|refrigerante|suco|bebida|cerveja|agua)/i, category: 'Bebidas' },
+  { pattern: /(en:chocolates|en:biscuits|en:cookies|en:snacks|en:candies|en:groceries|grocer|pasta|rice|bean|snack|biscuit|cookie|chocolate|candy|candies|flour|sugar|coffee|oil|sauce|farofa|mercearia|arroz|feijao|macarrao|cafe|biscoito)/i, category: 'Mercearia' },
+  { pattern: /(en:dairies|en:cheeses|en:yogurts|dair|milk|cheese|yogurt|butter|margarine|laticin|leite|queijo|iogurte|manteiga|requeij)/i, category: 'Frios e Laticínios' },
+  { pattern: /(en:meats|meat|beef|pork|poultry|chicken|fish|sausage|ham|carne|frango|peixe|bovin|suin|linguic|presunt|acougue)/i, category: 'Açougue' },
+  { pattern: /(en:breads|bread|bakery|cake|toast|pao|padaria|bolo|torrada)/i, category: 'Padaria' },
+  { pattern: /(en:hygiene|en:cosmetics|hygiene|cosmetic|personal-care|shampoo|soap|toothpaste|deodorant|higiene|sabonete|creme-dental|desodorante)/i, category: 'Higiene Pessoal' },
+  { pattern: /(en:cleaning|cleaning|detergent|laundry|bleach|limpeza|detergente|sabao|amaciante|desinfetante)/i, category: 'Limpeza' },
   { pattern: /(medicine|pharmaceutical|vitamin|supplement|medicamento|farmacia|vitamina)/i, category: 'Farmácia' },
-  { pattern: /(grocer|pasta|rice|bean|snack|biscuit|cookie|chocolate|flour|sugar|coffee|oil|sauce|farofa|mercearia|arroz|feijao|macarrao|cafe|biscoito)/i, category: 'Mercearia' },
+  { pattern: /(fruit|vegetable|produce|fresh-plant|hortifruti|fruta|verdura|legume)/i, category: 'Hortifruti' },
 ];
 
 function stripAccents(str) {
@@ -119,14 +119,75 @@ function isGarbledOcrWord(word) {
   return false;
 }
 
+const VALID_SHORT_PT_WORDS = new Set([
+  'de',
+  'da',
+  'do',
+  'em',
+  'no',
+  'na',
+  'ao',
+  'os',
+  'as',
+  'e',
+  'a',
+  'o',
+  'un',
+  'kg',
+  'ml',
+  'lt',
+  'g',
+  'l',
+]);
+
+export function isReadableProductTitle(text) {
+  const clean = String(text || '').trim();
+  if (!clean) return false;
+  const ascii = stripAccents(clean);
+  const alphaOnly = ascii.replace(/[^a-zA-Z]/g, '');
+  if (alphaOnly.length < 4) return false;
+
+  const vowels = (alphaOnly.match(/[aeiouyAEIOUY]/g) || []).length;
+  const vowelRatio = vowels / alphaOnly.length;
+  if (vowelRatio < 0.24 || vowelRatio > 0.78) return false;
+
+  const tokens = ascii.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return false;
+
+  let badCount = 0;
+  let goodWords = 0;
+  for (const tok of tokens) {
+    const lower = tok.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!lower) continue;
+    if (/^\d+(?:ml|l|lt|kg|g|gr|mg|un|pct|cx|x)?$/i.test(lower)) continue;
+    if (/[a-z]/.test(lower) && /\d/.test(lower)) {
+      if (!/^(?:rap10|omega3|c\d{1,2}|t\d)$/i.test(lower)) {
+        badCount += 1;
+        continue;
+      }
+    }
+    if (lower.length <= 2) {
+      if (!VALID_SHORT_PT_WORDS.has(lower)) badCount += 1;
+      continue;
+    }
+    if (
+      !/[aeiouy]/.test(lower) ||
+      /[bcdfghjklmnpqrstvwxz]{4,}/.test(lower) ||
+      /[aeiou]{4,}/.test(lower) ||
+      /(.)\1{2,}/.test(lower)
+    ) {
+      badCount += 1;
+    } else {
+      goodWords += 1;
+    }
+  }
+
+  if (goodWords === 0) return false;
+  return badCount / tokens.length < 0.4;
+}
+
 export function isLikelyGarbledOcrText(textoLimpo) {
-  const clean = String(textoLimpo || '').trim();
-  const alphaOnly = stripAccents(clean).replace(/[^a-zA-Z]/g, '');
-  if (alphaOnly.length < 4) return true;
-  const words = clean.match(/[A-Za-zÀ-ÿ]{3,}/g) || [];
-  if (words.length === 0) return true;
-  const validWords = words.filter((w) => !isGarbledOcrWord(w));
-  return validWords.length === 0;
+  return !isReadableProductTitle(textoLimpo);
 }
 
 export function buildCoreSearchWords(textoLimpo) {
@@ -187,14 +248,20 @@ export function cleanOrPreferProductTitle(apiName, localOcrText = '') {
   let cleaned = String(apiName || '').trim();
   if (!cleaned) return '';
 
+  // Corrige erros comuns da base Open Food Facts (ex.: "Stella Arois600" -> "Stella Artois 600ml", "3l" -> "3L")
   const hadStuckVolume = /[A-Za-zÀ-ÿ](\d{3})\b/.test(cleaned);
-  cleaned = cleaned.replace(
-    /([A-Za-zÀ-ÿ])(\d{3})\b/g,
-    (match, letter, num) =>
-      COMMON_VOLUME_NUMBERS.has(num) ? `${letter} ${num}ml` : `${letter} ${num}`
-  );
+  cleaned = cleaned
+    .replace(
+      /([A-Za-zÀ-ÿ])(\d{3})\b/g,
+      (match, letter, num) =>
+        COMMON_VOLUME_NUMBERS.has(num) ? `${letter} ${num}ml` : `${letter} ${num}`
+    )
+    .replace(/\bStella\s+Arois\b/gi, 'Stella Artois')
+    .replace(/\b(\d+(?:[,.]\d+)?)\s*l\b/g, '$1L')
+    .replace(/\s+/g, ' ')
+    .trim();
 
-  // Se o título retornado pela API estava malformado (ex: "Stella Arois600") e o OCR local está bem formado, prefere o OCR limpo
+  // Se o título retornado pela API estava malformado e o OCR local está bem formado, prefere o OCR limpo
   const localTrimmed = String(localOcrText || '').trim();
   if (
     hadStuckVolume &&
@@ -203,7 +270,7 @@ export function cleanOrPreferProductTitle(apiName, localOcrText = '') {
     buildCoreSearchWords(localTrimmed).length >= 2 &&
     /\b\d+(?:[,.]\d+)?\s*(?:ml|l|lt|kg|g)\b/i.test(localTrimmed)
   ) {
-    return localTrimmed;
+    return localTrimmed.replace(/\b(\d+(?:[,.]\d+)?)\s*l\b/g, '$1L');
   }
 
   return cleaned;
@@ -264,11 +331,7 @@ export function limparTextoEtiqueta(rawText) {
 }
 
 function mapCategoryFromProduct(nome, categoriesTags = []) {
-  const fromDict = inferCategorySmart(nome);
-  if (fromDict) {
-    return normalizeCategoryName(fromDict);
-  }
-
+  // 1. Quando há categories_tags estruturadas da Open Food Facts, avalia primeiro para evitar falsos positivos por sabor (ex.: "limão" em chocolate)
   const tagsJoined = Array.isArray(categoriesTags)
     ? categoriesTags.join(' ')
     : String(categoriesTags || '');
@@ -278,6 +341,15 @@ function mapCategoryFromProduct(nome, categoriesTags = []) {
         return normalizeCategoryName(rule.category);
       }
     }
+  }
+
+  // 2. Dicionário local inteligente (com marcas brasileiras e aprendizado do usuário)
+  const fromDict = inferCategorySmart(nome);
+  if (fromDict) {
+    return normalizeCategoryName(fromDict);
+  }
+
+  if (tagsJoined) {
     const fromTagsDict = inferCategorySmart(tagsJoined.replace(/[:_-]/g, ' '));
     if (fromTagsDict) {
       return normalizeCategoryName(fromTagsDict);
@@ -416,10 +488,10 @@ async function fetchJsonWithTimeout(url, timeoutMs = FETCH_TIMEOUT_MS) {
   } catch (err) {
     return {
       ok: false,
-      status: timedOut ? 'Timeout (4s)' : 'Erro de Rede',
+      status: timedOut ? 'Timeout (6,5s)' : 'Erro de Rede',
       data: null,
       errorMessage: timedOut
-        ? 'Tempo limite de 4 segundos excedido'
+        ? 'Tempo limite de 6,5 segundos excedido'
         : err?.message || 'Falha de conexão',
     };
   } finally {
@@ -606,6 +678,7 @@ export async function identificarProdutoDaEtiqueta({
   }
 
   // 4. Graceful Offline / No-Match Fallback
+  const safeLocalName = isReadableProductTitle(textoLimpo) ? textoLimpo : '';
   const durationMs = Date.now() - startedAtMs;
   await appendDiagnosticLog({
     ...baseLog,
@@ -613,15 +686,19 @@ export async function identificarProdutoDaEtiqueta({
     requestUrl: lastUrl,
     httpStatus: lastStatus,
     durationMs,
-    apiResultSummary: lastSummary,
+    apiResultSummary: safeLocalName
+      ? lastSummary
+      : `${lastSummary} (texto OCR ilegível descartado)`,
     finalOrigin: 'ocr_local',
   });
 
   return {
-    nome: textoLimpo,
+    nome: safeLocalName,
     marca: '',
     quantidade: '',
-    categoriaSugerida: mapCategoryFromProduct(textoLimpo, []),
+    categoriaSugerida: safeLocalName
+      ? mapCategoryFromProduct(safeLocalName, [])
+      : 'Outros',
     codigoBarras: cleanBarcode,
     imagemUrl: '',
     origem: 'ocr_local',
