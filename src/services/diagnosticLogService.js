@@ -1,10 +1,14 @@
 import { Dimensions, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  APP_VERSION,
+  APP_BUILD_TAG,
+  APP_CHANGELOG,
+} from '../constants/appVersion';
 
 const DIAGNOSTIC_LOGS_KEY = '@mlc_temp:app_diagnostic_logs';
 const LEGACY_API_LOGS_KEY = '@mlc_temp:api_debug_logs';
-const MAX_DIAGNOSTIC_LOGS = 40;
-const APP_VERSION = '1.0.0';
+const MAX_DIAGNOSTIC_LOGS = 50;
 
 let memoryLogs = null;
 
@@ -46,12 +50,21 @@ export function getAnonymousDeviceContext() {
     deviceModel: deviceLabel,
     screen: width > 0 && height > 0 ? `${width}x${height}` : 'N/A',
     appVersion: APP_VERSION,
+    buildTag: APP_BUILD_TAG,
   };
+}
+
+export function getChangelogSummary() {
+  return APP_CHANGELOG.map((entry) => ({
+    version: entry.version,
+    date: entry.date,
+    title: entry.title,
+  }));
 }
 
 export function formatDeviceContextLine() {
   const ctx = getAnonymousDeviceContext();
-  return `${ctx.os} ${ctx.osVersion} • ${ctx.deviceModel} • Tela ${ctx.screen} • App v${ctx.appVersion}`;
+  return `${ctx.os} ${ctx.osVersion} • ${ctx.deviceModel} • Tela ${ctx.screen} • App v${ctx.appVersion} (${ctx.buildTag})`;
 }
 
 export async function getDiagnosticLogs() {
@@ -108,6 +121,7 @@ async function appendEntry(entry) {
     const record = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       timestamp: formatLogTimestamp(),
+      version: APP_VERSION,
       ...entry,
     };
     const next = [record, ...existing].slice(0, MAX_DIAGNOSTIC_LOGS);
@@ -122,6 +136,44 @@ export async function recordScannerLog(entry) {
   await appendEntry({
     category: 'scanner',
     ...entry,
+  });
+}
+
+export async function recordItemConfirmationLog({
+  nameStatus = '',
+  priceStatus = '',
+  categoryStatus = '',
+  unitStatus = '',
+  sourceOrigin = 'ocr_local',
+} = {}) {
+  await appendEntry({
+    category: 'scanner',
+    eventType: 'item_confirmation',
+    routeTaken: '[CONFIRMAÇÃO ITEM]',
+    detectedBarcode: '-',
+    rawTextSnippet: `Origem inicial: ${sourceOrigin}`,
+    sanitizedText: `Nome: ${nameStatus} | Preço: ${priceStatus}`,
+    apiResultSummary: `Categoria: ${categoryStatus} | Unidade: ${unitStatus}`,
+    httpStatus: 'Local',
+    finalOrigin: sourceOrigin,
+  });
+}
+
+export async function recordManualItemAddLog({
+  hasPrice = false,
+  category = 'Outros',
+  unit = 'un',
+} = {}) {
+  await appendEntry({
+    category: 'scanner',
+    eventType: 'manual_add',
+    routeTaken: '[ADIÇÃO MANUAL]',
+    detectedBarcode: '-',
+    rawTextSnippet: 'Cadastro sem câmera',
+    sanitizedText: `Preço informado: ${hasPrice ? 'Sim' : 'Não'}`,
+    apiResultSummary: `Categoria: ${category} | Unidade: ${unit}`,
+    httpStatus: 'Local',
+    finalOrigin: 'manual',
   });
 }
 
@@ -156,7 +208,7 @@ export function formatDiagnosticLogsAsText(logs = []) {
   const lines = [
     '=== LOGS DE DIAGNÓSTICO TÉCNICO — MINHA LISTA DE COMPRAS ===',
     `Gerado em: ${dd}/${mm}/${yyyy} ${now.toTimeString().slice(0, 8)}`,
-    `Dispositivo (anônimo / LGPD): ${ctx.os} ${ctx.osVersion} | ${ctx.deviceModel} | Tela ${ctx.screen} | App v${ctx.appVersion}`,
+    `Dispositivo (anônimo / LGPD): ${ctx.os} ${ctx.osVersion} | ${ctx.deviceModel} | Tela ${ctx.screen} | App v${ctx.appVersion} (${ctx.buildTag})`,
     'Privacidade: Nenhum dado pessoal, conta, IP, localização ou identificador único é coletado.',
     `Total de registros: ${logs.length}`,
     '',

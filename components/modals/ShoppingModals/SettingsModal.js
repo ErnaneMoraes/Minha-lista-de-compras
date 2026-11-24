@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Modal,
   View,
@@ -11,6 +11,7 @@ import {
   Platform,
   LayoutAnimation,
 } from 'react-native';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { File, Paths } from 'expo-file-system';
 import * as LegacyFileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -50,6 +51,7 @@ import {
 import {
   getApiDiagnosticLogs,
   clearApiDiagnosticLogs,
+  clearProductLookupCache,
   identificarProdutoDaEtiqueta,
 } from '../../../src/services/productLookupService';
 import {
@@ -100,6 +102,9 @@ export default function SettingsModal({
     autoDeleteTagPhotos,
     tagPhotoRetentionDays,
     colors,
+    cardShadow,
+    typography,
+    isGoogleMapsTheme,
     radiusCard,
     radiusButton,
     borderWidth,
@@ -137,6 +142,9 @@ export default function SettingsModal({
   const [apiTestQuery, setApiTestQuery] = useState('');
   const [isApiTestRunning, setIsApiTestRunning] = useState(false);
   const [apiTestResult, setApiTestResult] = useState(null);
+  const [showEanScannerModal, setShowEanScannerModal] = useState(false);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const eanScannerLockRef = useRef(false);
 
   const refreshPhotoStats = () => {
     loadLists()
@@ -151,6 +159,41 @@ export default function SettingsModal({
       .catch(() => setApiLogs([]));
   };
 
+  const handleOpenDiagnosticScanner = async () => {
+    if (Platform.OS === 'web') return;
+    eanScannerLockRef.current = false;
+    if (!cameraPermission?.granted) {
+      const granted = await requestCameraPermission().catch(() => ({
+        granted: false,
+      }));
+      if (!granted?.granted) {
+        setApiTestResult({
+          origem: 'ocr_local',
+          httpStatus: 'Permissão negada',
+          routeTaken: 'Leitor de Câmera EAN',
+          nome: 'Autorize o acesso à câmera nas configurações do aparelho.',
+          marca: '',
+          quantidade: '',
+          categoriaSugerida: 'Outros',
+          durationMs: 0,
+          rawPayload: null,
+        });
+        return;
+      }
+    }
+    setShowEanScannerModal(true);
+  };
+
+  const handleDiagnosticBarcodeScanned = ({ data }) => {
+    if (eanScannerLockRef.current) return;
+    const digits = String(data || '').replace(/\D/g, '');
+    if (digits.length !== 8 && digits.length !== 13) return;
+    eanScannerLockRef.current = true;
+    setShowEanScannerModal(false);
+    setApiTestQuery(digits);
+    handleRunApiTest(digits);
+  };
+
   const handleRunApiTest = async (overrideInput = null) => {
     if (isApiTestRunning) return;
     const rawInput = String(
@@ -158,24 +201,19 @@ export default function SettingsModal({
     ).trim();
     if (!rawInput) return;
 
+    const cleanDigits = rawInput.replace(/\D/g, '');
+    const effectiveCode = cleanDigits || rawInput;
     if (overrideInput !== null) {
-      setApiTestQuery(rawInput);
+      setApiTestQuery(effectiveCode);
     }
 
     setIsApiTestRunning(true);
     setApiTestResult(null);
     const t0 = Date.now();
     try {
-      const onlyDigits = rawInput.replace(/\D/g, '');
-      const isPureBarcode =
-        /^\d+$/.test(rawInput.replace(/\s+/g, '')) &&
-        (onlyDigits.length === 8 ||
-          onlyDigits.length === 12 ||
-          onlyDigits.length === 13);
-
       const result = await identificarProdutoDaEtiqueta({
-        rawText: isPureBarcode ? '' : rawInput,
-        barcode: isPureBarcode ? onlyDigits : '',
+        rawText: '',
+        barcode: cleanDigits,
         bypassCache: true,
       });
       const elapsedMs =
@@ -185,20 +223,33 @@ export default function SettingsModal({
       setApiTestResult({
         origem: result?.origem || 'ocr_local',
         httpStatus: result?.httpStatus ?? '-',
+        routeTaken: result?.routeTaken || 'Consulta EAN',
         nome: result?.nome || '(não encontrado)',
         marca: result?.marca || '',
+        quantidade: result?.quantidade || '',
         categoriaSugerida: result?.categoriaSugerida || 'Outros',
         durationMs: elapsedMs,
+        rawPayload: result?.rawPayload || {
+          barcode: cleanDigits,
+          origem: result?.origem || 'ocr_local',
+          httpStatus: result?.httpStatus ?? '-',
+          routeTaken: result?.routeTaken || '',
+          nome: result?.nome || '',
+          categoriaSugerida: result?.categoriaSugerida || 'Outros',
+        },
       });
       refreshApiLogs();
     } catch (err) {
       setApiTestResult({
         origem: 'ocr_local',
-        httpStatus: 'Erro',
+        httpStatus: 'Erro de Rede',
+        routeTaken: 'Fluxo 1: EAN API v2',
         nome: err?.message || 'Falha ao consultar API',
         marca: '',
+        quantidade: '',
         categoriaSugerida: 'Outros',
         durationMs: Date.now() - t0,
+        rawPayload: { error: err?.message || String(err) },
       });
     } finally {
       setIsApiTestRunning(false);
@@ -721,7 +772,7 @@ export default function SettingsModal({
       return {
         title: 'Excluir Todos os Dados do Aplicativo',
         message:
-          'Deseja zerar o aplicativo apagando todas as listas de compras, histórico de gastos, lembretes, categorias aprendidas e fotos das etiquetas? Esta ação não pode ser desfeita. Recomendamos fazer um backup antes de continuar para não perder seus registros.',
+          'Deseja zerar o aplicativo apagando todas as listas de compras, histórico de gastos, lembretes, categorias aprendidas, fotos das etiquetas, cache de produtos e logs de diagnóstico? Esta ação não pode ser desfeita. Recomendamos fazer um backup antes de continuar para não perder seus registros.',
         confirmLabel: 'Excluir Tudo',
         showBackupBefore: true,
       };
@@ -751,10 +802,15 @@ export default function SettingsModal({
         await deleteAllReminderLists();
         msg = 'Todas as listas de lembretes foram excluídas com sucesso!';
       } else if (action === 'all') {
-        await deleteAllAppData();
+        await Promise.all([
+          deleteAllAppData(),
+          clearApiDiagnosticLogs(),
+          clearProductLookupCache(),
+        ]);
+        setApiLogs([]);
         setPhotoStats({ count: 0, totalBytes: 0, formattedSize: '0 KB' });
         msg =
-          'Todos os dados do aplicativo foram apagados com sucesso! Você voltará para a tela inicial.';
+          'Todos os dados, fotos, cache de produtos e logs de diagnóstico foram apagados com sucesso! Você voltará para a tela inicial.';
         navigateHome = true;
       }
 
@@ -802,50 +858,47 @@ export default function SettingsModal({
   const appErrorCount = apiLogs.filter((l) => l.category === 'error').length;
 
   const renderDeviceSummaryAndFilters = (showFilters = true) => (
-    <View style={{ marginBottom: 12 }}>
-      <View
+    <View
+      style={{
+        backgroundColor: colors.card,
+        borderColor: colors.borderColor,
+        borderWidth,
+        borderRadius: Math.min(12, radiusCard),
+        padding: 12,
+      }}
+    >
+      <Text
         style={{
-          backgroundColor: colors.card,
-          borderColor: colors.borderColor,
-          borderWidth,
-          borderRadius: Math.min(12, radiusCard),
-          padding: 11,
-          marginBottom: showFilters ? 10 : 0,
+          fontSize: 12,
+          fontWeight: 'bold',
+          color: colors.principal,
+          marginBottom: 4,
         }}
       >
-        <Text
-          style={{
-            fontSize: 11.5,
-            fontWeight: 'bold',
-            color: colors.principal,
-            marginBottom: 3,
-          }}
-        >
-          Resumo Técnico do Aparelho (LGPD)
-        </Text>
-        <Text
-          style={{
-            fontSize: 12,
-            color: colors.textoEscuro,
-            lineHeight: 17,
-          }}
-        >
-          {deviceContextSummary}
-        </Text>
-        <Text
-          style={{
-            fontSize: 10.5,
-            color: colors.textMuted,
-            marginTop: 3,
-          }}
-          numberOfLines={1}
-        >
-          Sem dados pessoais ou identificadores
-        </Text>
-      </View>
+        1. Ambiente &amp; Versão (LGPD)
+      </Text>
+      <Text
+        style={{
+          fontSize: 12,
+          color: colors.textoEscuro,
+          lineHeight: 17,
+        }}
+      >
+        {deviceContextSummary}
+      </Text>
+      <Text
+        style={{
+          fontSize: 10.5,
+          color: colors.textMuted,
+          marginTop: 4,
+        }}
+        numberOfLines={1}
+      >
+        Privacidade LGPD: sem dados pessoais ou identificadores únicos
+      </Text>
 
       {showFilters ? (
-        <View style={{ flexDirection: 'row', gap: 8 }}>
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
           {[
             { key: 'all', label: `Todos (${apiLogs.length})` },
             { key: 'error', label: `Erros (${appErrorCount})` },
@@ -866,7 +919,7 @@ export default function SettingsModal({
                   paddingHorizontal: 6,
                   borderRadius: Math.min(8, radiusButton),
                   borderWidth: 1,
-                  backgroundColor: active ? colors.principal : colors.card,
+                  backgroundColor: active ? colors.principal : colors.surfaceMuted,
                   borderColor: active ? colors.principal : colors.borderColor,
                   alignItems: 'center',
                 }}
@@ -1038,179 +1091,274 @@ export default function SettingsModal({
     );
   };
 
-  const renderApiTesterBox = () => (
-    <View
-      style={{
-        backgroundColor: colors.card,
-        borderColor: colors.borderColor,
-        borderWidth,
-        borderRadius: Math.min(12, radiusCard),
-        padding: 10,
-        marginBottom: 10,
-      }}
-    >
-      <Text
-        style={{
-          fontSize: 12.5,
-          fontWeight: 'bold',
-          color: colors.textoEscuro,
-          marginBottom: 6,
-        }}
-      >
-        Testar Consulta na API
-      </Text>
+  const renderApiTesterBox = () => {
+    const statusStr = apiTestResult ? String(apiTestResult.httpStatus) : '';
+    const isHttp200 = statusStr === '200';
+    const isCacheHit =
+      apiTestResult?.origem === 'cache' || statusStr === 'Local';
+    const statusBadgeLabel = isCacheHit
+      ? 'Cache Local'
+      : /^\d{3}$/.test(statusStr)
+        ? `HTTP ${statusStr}`
+        : statusStr || 'Sem resposta';
+    const statusBadgeBg = isHttp200
+      ? colors.verdeSuave
+      : isCacheHit
+        ? colors.surfaceMuted
+        : colors.dangerSoft;
+    const statusBadgeTextColor = isHttp200
+      ? colors.principal
+      : isCacheHit
+        ? colors.textoEscuro
+        : colors.logoutRed;
 
-      <TextInput
-        value={apiTestQuery}
-        onChangeText={setApiTestQuery}
-        placeholder="Digite um EAN (ex: 7892840800604) ou nome do produto..."
-        placeholderTextColor={colors.textMuted}
-        autoCapitalize="none"
-        autoCorrect={false}
-        returnKeyType="search"
-        onSubmitEditing={() => handleRunApiTest()}
-        style={{
-          backgroundColor: colors.surfaceMuted,
-          borderColor: colors.borderColor,
-          borderWidth: 1,
-          borderRadius: Math.min(10, radiusButton),
-          color: colors.textoEscuro,
-          fontSize: 12.5,
-          paddingHorizontal: 10,
-          paddingVertical: 8,
-          marginBottom: 8,
-        }}
-      />
-
+    return (
       <View
         style={{
-          flexDirection: 'row',
-          flexWrap: 'wrap',
-          gap: 6,
-          marginBottom: 8,
+          backgroundColor: colors.card,
+          borderColor: colors.borderColor,
+          borderWidth,
+          borderRadius: Math.min(12, radiusCard),
+          padding: 12,
         }}
       >
-        <TouchableOpacity
-          activeOpacity={0.8}
-          disabled={isApiTestRunning}
-          onPress={() => handleRunApiTest('7892840800604')}
-          style={{
-            backgroundColor: colors.verdeSuave,
-            borderColor: colors.principal,
-            borderWidth: 1,
-            borderRadius: 999,
-            paddingHorizontal: 10,
-            paddingVertical: 5,
-          }}
-        >
-          <Text
-            style={{
-              fontSize: 11.5,
-              fontWeight: '700',
-              color: colors.badgeText || colors.principal,
-            }}
-          >
-            Pepsi 3L (EAN)
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          activeOpacity={0.8}
-          disabled={isApiTestRunning}
-          onPress={() => handleRunApiTest('7891991295109')}
-          style={{
-            backgroundColor: colors.verdeSuave,
-            borderColor: colors.principal,
-            borderWidth: 1,
-            borderRadius: 999,
-            paddingHorizontal: 10,
-            paddingVertical: 5,
-          }}
-        >
-          <Text
-            style={{
-              fontSize: 11.5,
-              fontWeight: '700',
-              color: colors.badgeText || colors.principal,
-            }}
-          >
-            Stella Artois (EAN)
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      <TouchableOpacity
-        activeOpacity={0.85}
-        disabled={isApiTestRunning || !apiTestQuery.trim()}
-        onPress={() => handleRunApiTest()}
-        style={[
-          styles.builderPill,
-          {
-            backgroundColor: colors.principal,
-            borderColor: colors.principal,
-            borderRadius: Math.min(10, radiusButton),
-            opacity: isApiTestRunning || !apiTestQuery.trim() ? 0.6 : 1,
-            flexDirection: 'row',
-            gap: 6,
-          },
-        ]}
-      >
-        {isApiTestRunning ? (
-          <ActivityIndicator size="small" color={colors.textoPrincipal} />
-        ) : (
-          <FontAwesome6
-            name="bolt"
-            size={12}
-            color={colors.textoPrincipal}
-          />
-        )}
         <Text
-          style={[styles.builderPillText, { color: colors.textoPrincipal }]}
-        >
-          {isApiTestRunning ? 'Consultando...' : 'Testar API'}
-        </Text>
-      </TouchableOpacity>
-
-      {apiTestResult ? (
-        <View
           style={{
-            marginTop: 8,
-            padding: 8,
-            borderRadius: Math.min(8, radiusButton),
+            fontSize: 12,
+            fontWeight: 'bold',
+            color: colors.principal,
+            marginBottom: 8,
+          }}
+        >
+          2. Testador de Consulta API (Câmera / EAN)
+        </Text>
+
+        <TextInput
+          value={apiTestQuery}
+          onChangeText={(txt) => setApiTestQuery(txt.replace(/[^\d]/g, ''))}
+          placeholder="Digite ou escaneie o EAN (ex: 789...)"
+          placeholderTextColor={colors.textMuted}
+          keyboardType="numeric"
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
+          onSubmitEditing={() => handleRunApiTest()}
+          style={{
             backgroundColor: colors.surfaceMuted,
             borderColor: colors.borderColor,
             borderWidth: 1,
+            borderRadius: Math.min(10, radiusButton),
+            color: colors.textoEscuro,
+            fontSize: 13,
+            paddingHorizontal: 11,
+            paddingVertical: 9,
+            marginBottom: 10,
           }}
-        >
-          <Text
+        />
+
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          {Platform.OS !== 'web' ? (
+            <TouchableOpacity
+              activeOpacity={0.85}
+              disabled={isApiTestRunning}
+              onPress={handleOpenDiagnosticScanner}
+              style={[
+                styles.diagGridBtn,
+                {
+                  backgroundColor: colors.verdeSuave,
+                  borderColor: colors.principal,
+                  borderRadius: Math.min(10, radiusButton),
+                  opacity: isApiTestRunning ? 0.6 : 1,
+                },
+              ]}
+              accessibilityLabel="Escanear código de barras pela câmera"
+            >
+              <FontAwesome6
+                name="barcode"
+                size={13}
+                color={colors.badgeText || colors.principal}
+              />
+              <Text
+                style={[
+                  styles.diagGridBtnText,
+                  { color: colors.badgeText || colors.principal },
+                ]}
+                numberOfLines={1}
+              >
+                Escanear
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+
+          <TouchableOpacity
+            activeOpacity={0.85}
+            disabled={isApiTestRunning || !apiTestQuery.trim()}
+            onPress={() => handleRunApiTest()}
+            style={[
+              styles.diagGridBtn,
+              {
+                backgroundColor: colors.principal,
+                borderColor: colors.principal,
+                borderRadius: Math.min(10, radiusButton),
+                opacity: isApiTestRunning || !apiTestQuery.trim() ? 0.6 : 1,
+              },
+            ]}
+            accessibilityLabel="Consultar EAN na API Open Food Facts"
+          >
+            {isApiTestRunning ? (
+              <ActivityIndicator size="small" color={colors.textoPrincipal} />
+            ) : (
+              <FontAwesome6
+                name="magnifying-glass"
+                size={12}
+                color={colors.textoPrincipal}
+              />
+            )}
+            <Text
+              style={[
+                styles.diagGridBtnText,
+                { color: colors.textoPrincipal },
+              ]}
+              numberOfLines={1}
+            >
+              {isApiTestRunning ? 'Consultando...' : 'Consultar'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {apiTestResult ? (
+          <View
             style={{
-              fontSize: 11.5,
-              fontWeight: 'bold',
-              color:
-                apiTestResult.origem === 'api'
-                  ? colors.principal
-                  : colors.textoEscuro,
-              marginBottom: 3,
+              marginTop: 10,
+              padding: 10,
+              borderRadius: Math.min(10, radiusButton),
+              backgroundColor: colors.surfaceMuted,
+              borderColor: colors.borderColor,
+              borderWidth: 1,
             }}
           >
-            Origem: {apiTestResult.origem} • HTTP: {String(apiTestResult.httpStatus)} •{' '}
-            {apiTestResult.durationMs} ms
-          </Text>
-          <Text style={{ fontSize: 11.5, color: colors.textoEscuro }}>
-            <Text style={{ fontWeight: 'bold' }}>Nome: </Text>
-            {apiTestResult.nome}
-          </Text>
-          <Text style={{ fontSize: 11.5, color: colors.textoEscuro }}>
-            <Text style={{ fontWeight: 'bold' }}>Marca: </Text>
-            {apiTestResult.marca || '—'}
-          </Text>
-          <Text style={{ fontSize: 11.5, color: colors.textoEscuro }}>
-            <Text style={{ fontWeight: 'bold' }}>Categoria: </Text>
-            {apiTestResult.categoriaSugerida}
-          </Text>
-        </View>
-      ) : null}
-    </View>
-  );
+            <View
+              style={{
+                flexDirection: 'row',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                gap: 6,
+                marginBottom: 8,
+              }}
+            >
+              <View
+                style={{
+                  backgroundColor: statusBadgeBg,
+                  paddingHorizontal: 8,
+                  paddingVertical: 3,
+                  borderRadius: 999,
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 'bold',
+                    color: statusBadgeTextColor,
+                  }}
+                >
+                  {statusBadgeLabel}
+                </Text>
+              </View>
+              <Text
+                style={{
+                  fontSize: 11,
+                  fontWeight: '700',
+                  color: colors.textMuted,
+                }}
+              >
+                {apiTestResult.durationMs} ms • {apiTestResult.routeTaken}
+              </Text>
+            </View>
+
+            <Text
+              style={{
+                fontSize: 11.5,
+                color: colors.textoEscuro,
+                marginBottom: 2,
+              }}
+            >
+              <Text style={{ fontWeight: 'bold' }}>Produto: </Text>
+              {apiTestResult.nome}
+            </Text>
+            <Text
+              style={{
+                fontSize: 11.5,
+                color: colors.textoEscuro,
+                marginBottom: 2,
+              }}
+            >
+              <Text style={{ fontWeight: 'bold' }}>Marca: </Text>
+              {apiTestResult.marca || '—'}
+            </Text>
+            <Text
+              style={{
+                fontSize: 11.5,
+                color: colors.textoEscuro,
+                marginBottom: 2,
+              }}
+            >
+              <Text style={{ fontWeight: 'bold' }}>Quantidade: </Text>
+              {apiTestResult.quantidade || '—'}
+            </Text>
+            <Text
+              style={{
+                fontSize: 11.5,
+                color: colors.textoEscuro,
+                marginBottom: apiTestResult.rawPayload ? 8 : 0,
+              }}
+            >
+              <Text style={{ fontWeight: 'bold' }}>Categoria Sugerida: </Text>
+              {apiTestResult.categoriaSugerida}
+            </Text>
+
+            {apiTestResult.rawPayload ? (
+              <View
+                style={{
+                  backgroundColor: colors.card,
+                  borderColor: colors.borderColor,
+                  borderWidth: 1,
+                  borderRadius: Math.min(8, radiusButton),
+                  padding: 8,
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 10.5,
+                    fontWeight: 'bold',
+                    color: colors.textMuted,
+                    marginBottom: 4,
+                  }}
+                >
+                  Prévia JSON retornada:
+                </Text>
+                <ScrollView
+                  style={{ maxHeight: 120 }}
+                  nestedScrollEnabled={true}
+                >
+                  <Text
+                    style={{
+                      fontSize: 10,
+                      color: colors.textoEscuro,
+                      fontFamily:
+                        Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+                    }}
+                    selectable={true}
+                  >
+                    {JSON.stringify(apiTestResult.rawPayload, null, 2)}
+                  </Text>
+                </ScrollView>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
+    );
+  };
 
   return (
     <Modal
@@ -1225,17 +1373,27 @@ export default function SettingsModal({
             styles.card,
             {
               backgroundColor: colors.card,
-              borderColor: colors.borderColor,
+              borderColor: colors.dividerColor || colors.borderColor,
               borderRadius: Math.min(22, radiusCard + 4),
               borderWidth,
             },
+            cardShadow,
           ]}
         >
           {/* Modal Header */}
           <View style={styles.headerRow}>
             <View style={styles.titleWrap}>
               <FontAwesome6 name="gear" size={18} color={colors.principal} />
-              <Text style={[styles.title, { color: colors.textoEscuro }]}>
+              <Text
+                style={[
+                  styles.title,
+                  {
+                    color: colors.textoEscuro,
+                    fontWeight: typography?.headingWeight || 'bold',
+                    letterSpacing: typography?.letterSpacing || 0,
+                  },
+                ]}
+              >
                 Configurações
               </Text>
             </View>
@@ -2848,14 +3006,36 @@ export default function SettingsModal({
                 <View
                   style={[
                     styles.accordionBody,
-                    { borderTopColor: colors.borderColor },
+                    { borderTopColor: colors.borderColor, gap: 12 },
                   ]}
                 >
-                  {/* Bloco A — Resumo Técnico do Aparelho (LGPD) */}
+                  {/* Subparte 1 — Ambiente & Versão (LGPD) */}
                   {renderDeviceSummaryAndFilters(false)}
 
-                  {/* Bloco B — Ações Rápidas (Grade 2x2 com espaçamento amplo) */}
-                  <View style={{ gap: 10, marginBottom: 14 }}>
+                  {/* Subparte 2 — Testador de Consulta API (Câmera / EAN) */}
+                  {renderApiTesterBox()}
+
+                  {/* Subparte 3 — Exportação & Manutenção (Grade 2x2) */}
+                  <View
+                    style={{
+                      backgroundColor: colors.card,
+                      borderColor: colors.borderColor,
+                      borderWidth,
+                      borderRadius: Math.min(12, radiusCard),
+                      padding: 12,
+                      gap: 10,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 'bold',
+                        color: colors.principal,
+                      }}
+                    >
+                      3. Exportação &amp; Manutenção
+                    </Text>
+
                     <View style={{ flexDirection: 'row', gap: 10 }}>
                       <TouchableOpacity
                         activeOpacity={0.8}
@@ -2866,7 +3046,7 @@ export default function SettingsModal({
                         style={[
                           styles.diagGridBtn,
                           {
-                            backgroundColor: colors.card,
+                            backgroundColor: colors.surfaceMuted,
                             borderColor: colors.principal,
                             borderRadius: Math.min(10, radiusButton),
                           },
@@ -2933,7 +3113,7 @@ export default function SettingsModal({
                         style={[
                           styles.diagGridBtn,
                           {
-                            backgroundColor: colors.card,
+                            backgroundColor: colors.surfaceMuted,
                             borderColor: colors.borderColor,
                             borderRadius: Math.min(10, radiusButton),
                           },
@@ -2986,91 +3166,100 @@ export default function SettingsModal({
                         </Text>
                       </TouchableOpacity>
                     </View>
-                  </View>
 
-                  {diagZipFeedback ? (
-                    <Text
-                      style={{
-                        fontSize: 11.5,
-                        fontWeight: '600',
-                        color:
-                          diagZipFeedback.type === 'error'
-                            ? colors.logoutRed
-                            : colors.principal,
-                        marginBottom: 12,
-                        textAlign: 'center',
-                      }}
-                    >
-                      {diagZipFeedback.text}
-                    </Text>
-                  ) : null}
-
-                  {/* Bloco C — Últimos 3 Registros */}
-                  <Text
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 'bold',
-                      color: colors.textoEscuro,
-                      marginBottom: 8,
-                    }}
-                  >
-                    Últimos Registros
-                  </Text>
-
-                  {apiLogs.length === 0 ? (
-                    <Text
-                      style={[
-                        styles.sectionDesc,
-                        {
-                          color: colors.textMuted,
-                          textAlign: 'center',
-                          paddingVertical: 10,
-                        },
-                      ]}
-                    >
-                      Nenhum evento registrado ainda.
-                    </Text>
-                  ) : (
-                    <View style={{ gap: 2 }}>
-                      {apiLogs
-                        .slice(0, 3)
-                        .map((log, idx) =>
-                          renderDiagnosticLogCard(log, idx, false)
-                        )}
-
-                      <TouchableOpacity
-                        activeOpacity={0.8}
-                        onPress={() => {
-                          refreshApiLogs();
-                          setShowFullScreenLogs(true);
-                        }}
+                    {diagZipFeedback ? (
+                      <Text
                         style={{
-                          paddingVertical: 9,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexDirection: 'row',
-                          gap: 6,
+                          fontSize: 11.5,
+                          fontWeight: '600',
+                          color:
+                            diagZipFeedback.type === 'error'
+                              ? colors.logoutRed
+                              : colors.principal,
+                          textAlign: 'center',
                         }}
                       >
-                        <Text
+                        {diagZipFeedback.text}
+                      </Text>
+                    ) : null}
+                  </View>
+
+                  {/* Subparte 4 — Histórico de Eventos & Leituras */}
+                  <View
+                    style={{
+                      backgroundColor: colors.card,
+                      borderColor: colors.borderColor,
+                      borderWidth,
+                      borderRadius: Math.min(12, radiusCard),
+                      padding: 12,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 'bold',
+                        color: colors.principal,
+                        marginBottom: 8,
+                      }}
+                    >
+                      4. Histórico de Eventos &amp; Leituras
+                    </Text>
+
+                    {apiLogs.length === 0 ? (
+                      <Text
+                        style={[
+                          styles.sectionDesc,
+                          {
+                            color: colors.textMuted,
+                            textAlign: 'center',
+                            paddingVertical: 10,
+                          },
+                        ]}
+                      >
+                        Nenhum evento registrado ainda.
+                      </Text>
+                    ) : (
+                      <View style={{ gap: 2 }}>
+                        {apiLogs
+                          .slice(0, 3)
+                          .map((log, idx) =>
+                            renderDiagnosticLogCard(log, idx, false)
+                          )}
+
+                        <TouchableOpacity
+                          activeOpacity={0.8}
+                          onPress={() => {
+                            refreshApiLogs();
+                            setShowFullScreenLogs(true);
+                          }}
                           style={{
-                            fontSize: 12.5,
-                            fontWeight: 'bold',
-                            color: colors.principal,
+                            paddingVertical: 8,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexDirection: 'row',
+                            gap: 6,
                           }}
                         >
-                          Ver todos os {apiLogs.length}{' '}
-                          {apiLogs.length === 1 ? 'registro' : 'registros'} em
-                          Tela Cheia
-                        </Text>
-                        <FontAwesome6
-                          name="chevron-right"
-                          size={11}
-                          color={colors.principal}
-                        />
-                      </TouchableOpacity>
-                    </View>
-                  )}
+                          <Text
+                            style={{
+                              fontSize: 12.5,
+                              fontWeight: 'bold',
+                              color: colors.principal,
+                            }}
+                          >
+                            Ver todos os {apiLogs.length}{' '}
+                            {apiLogs.length === 1 ? 'registro' : 'registros'} em
+                            Tela Cheia
+                          </Text>
+                          <FontAwesome6
+                            name="chevron-right"
+                            size={11}
+                            color={colors.principal}
+                          />
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
                 </View>
               ) : null}
             </View>
@@ -3440,174 +3629,332 @@ export default function SettingsModal({
             </TouchableOpacity>
           </View>
 
-          <View
-            style={{
-              paddingHorizontal: 14,
-              paddingVertical: 12,
-              backgroundColor: colors.card,
-              borderBottomWidth: 1,
-              borderBottomColor: colors.borderColor,
-              gap: 10,
-            }}
-          >
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={refreshApiLogs}
-                style={[
-                  styles.diagGridBtn,
-                  {
-                    backgroundColor: colors.surfaceMuted,
-                    borderColor: colors.borderColor,
-                    borderRadius: Math.min(10, radiusButton),
-                  },
-                ]}
-              >
-                <FontAwesome6
-                  name="rotate"
-                  size={12}
-                  color={colors.textoEscuro}
-                />
-                <Text
-                  style={[styles.diagGridBtnText, { color: colors.textoEscuro }]}
-                  numberOfLines={1}
-                >
-                  Atualizar
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                activeOpacity={0.85}
-                disabled={isDiagZipBusy}
-                onPress={handleExportDiagnosticZip}
-                style={[
-                  styles.diagGridBtn,
-                  {
-                    backgroundColor: colors.principal,
-                    borderColor: colors.principal,
-                    borderRadius: Math.min(10, radiusButton),
-                    opacity: isDiagZipBusy ? 0.65 : 1,
-                  },
-                ]}
-              >
-                {isDiagZipBusy ? (
-                  <ActivityIndicator
-                    size="small"
-                    color={colors.textoPrincipal}
-                  />
-                ) : (
-                  <FontAwesome6
-                    name="file-zipper"
-                    size={12}
-                    color={colors.textoPrincipal}
-                  />
-                )}
-                <Text
-                  style={[
-                    styles.diagGridBtnText,
-                    { color: colors.textoPrincipal },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {isDiagZipBusy ? 'Gerando...' : 'Exportar Tudo (.zip)'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={handleExportApiLogs}
-                style={[
-                  styles.diagGridBtn,
-                  {
-                    backgroundColor: colors.card,
-                    borderColor: colors.borderColor,
-                    borderRadius: Math.min(10, radiusButton),
-                  },
-                ]}
-              >
-                <FontAwesome6
-                  name="file-lines"
-                  size={12}
-                  color={colors.textoEscuro}
-                />
-                <Text
-                  style={[styles.diagGridBtnText, { color: colors.textoEscuro }]}
-                  numberOfLines={1}
-                >
-                  Exportar Logs (.txt)
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={async () => {
-                  await clearApiDiagnosticLogs();
-                  setApiLogs([]);
-                }}
-                style={[
-                  styles.diagGridBtn,
-                  {
-                    backgroundColor: colors.dangerSoft,
-                    borderColor: colors.logoutRed,
-                    borderRadius: Math.min(10, radiusButton),
-                  },
-                ]}
-              >
-                <FontAwesome6
-                  name="trash-can"
-                  size={12}
-                  color={colors.logoutRed}
-                />
-                <Text
-                  style={[styles.diagGridBtnText, { color: colors.logoutRed }]}
-                  numberOfLines={1}
-                >
-                  Limpar Logs
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {diagZipFeedback ? (
-              <Text
-                style={{
-                  fontSize: 11.5,
-                  fontWeight: '600',
-                  color:
-                    diagZipFeedback.type === 'error'
-                      ? colors.logoutRed
-                      : colors.principal,
-                  textAlign: 'center',
-                }}
-              >
-                {diagZipFeedback.text}
-              </Text>
-            ) : null}
-          </View>
-
           <ScrollView
-            contentContainerStyle={{ padding: 14, paddingBottom: 32 }}
+            contentContainerStyle={{ padding: 14, paddingBottom: 36, gap: 12 }}
             showsVerticalScrollIndicator={true}
           >
+            {/* Subparte 1 — Ambiente & Versão (LGPD) */}
             {renderDeviceSummaryAndFilters(true)}
+
+            {/* Subparte 2 — Testador de Consulta API (Câmera / EAN) */}
             {renderApiTesterBox()}
 
-            {filteredDiagnosticLogs.length === 0 ? (
+            {/* Subparte 3 — Exportação & Manutenção */}
+            <View
+              style={{
+                backgroundColor: colors.card,
+                borderColor: colors.borderColor,
+                borderWidth,
+                borderRadius: Math.min(12, radiusCard),
+                padding: 12,
+                gap: 10,
+              }}
+            >
               <Text
                 style={{
-                  color: colors.textMuted,
-                  fontSize: 14,
-                  textAlign: 'center',
-                  marginTop: 40,
+                  fontSize: 12,
+                  fontWeight: 'bold',
+                  color: colors.principal,
                 }}
               >
-                Nenhum evento registrado para este filtro.
+                3. Exportação &amp; Manutenção
               </Text>
-            ) : (
-              filteredDiagnosticLogs.map((log, idx) =>
-                renderDiagnosticLogCard(log, idx, true)
-              )
-            )}
+
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={refreshApiLogs}
+                  style={[
+                    styles.diagGridBtn,
+                    {
+                      backgroundColor: colors.surfaceMuted,
+                      borderColor: colors.borderColor,
+                      borderRadius: Math.min(10, radiusButton),
+                    },
+                  ]}
+                >
+                  <FontAwesome6
+                    name="rotate"
+                    size={12}
+                    color={colors.textoEscuro}
+                  />
+                  <Text
+                    style={[styles.diagGridBtnText, { color: colors.textoEscuro }]}
+                    numberOfLines={1}
+                  >
+                    Atualizar
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  disabled={isDiagZipBusy}
+                  onPress={handleExportDiagnosticZip}
+                  style={[
+                    styles.diagGridBtn,
+                    {
+                      backgroundColor: colors.principal,
+                      borderColor: colors.principal,
+                      borderRadius: Math.min(10, radiusButton),
+                      opacity: isDiagZipBusy ? 0.65 : 1,
+                    },
+                  ]}
+                >
+                  {isDiagZipBusy ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={colors.textoPrincipal}
+                    />
+                  ) : (
+                    <FontAwesome6
+                      name="file-zipper"
+                      size={12}
+                      color={colors.textoPrincipal}
+                    />
+                  )}
+                  <Text
+                    style={[
+                      styles.diagGridBtnText,
+                      { color: colors.textoPrincipal },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {isDiagZipBusy ? 'Gerando...' : 'Exportar Tudo (.zip)'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={handleExportApiLogs}
+                  style={[
+                    styles.diagGridBtn,
+                    {
+                      backgroundColor: colors.surfaceMuted,
+                      borderColor: colors.borderColor,
+                      borderRadius: Math.min(10, radiusButton),
+                    },
+                  ]}
+                >
+                  <FontAwesome6
+                    name="file-lines"
+                    size={12}
+                    color={colors.textoEscuro}
+                  />
+                  <Text
+                    style={[styles.diagGridBtnText, { color: colors.textoEscuro }]}
+                    numberOfLines={1}
+                  >
+                    Exportar Logs (.txt)
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={async () => {
+                    await clearApiDiagnosticLogs();
+                    setApiLogs([]);
+                  }}
+                  style={[
+                    styles.diagGridBtn,
+                    {
+                      backgroundColor: colors.dangerSoft,
+                      borderColor: colors.logoutRed,
+                      borderRadius: Math.min(10, radiusButton),
+                    },
+                  ]}
+                >
+                  <FontAwesome6
+                    name="trash-can"
+                    size={12}
+                    color={colors.logoutRed}
+                  />
+                  <Text
+                    style={[styles.diagGridBtnText, { color: colors.logoutRed }]}
+                    numberOfLines={1}
+                  >
+                    Limpar Logs
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {diagZipFeedback ? (
+                <Text
+                  style={{
+                    fontSize: 11.5,
+                    fontWeight: '600',
+                    color:
+                      diagZipFeedback.type === 'error'
+                        ? colors.logoutRed
+                        : colors.principal,
+                    textAlign: 'center',
+                  }}
+                >
+                  {diagZipFeedback.text}
+                </Text>
+              ) : null}
+            </View>
+
+            {/* Subparte 4 — Histórico de Eventos & Leituras */}
+            <View
+              style={{
+                backgroundColor: colors.card,
+                borderColor: colors.borderColor,
+                borderWidth,
+                borderRadius: Math.min(12, radiusCard),
+                padding: 12,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 12,
+                  fontWeight: 'bold',
+                  color: colors.principal,
+                  marginBottom: 8,
+                }}
+              >
+                4. Histórico de Eventos &amp; Leituras ({filteredDiagnosticLogs.length})
+              </Text>
+
+              {filteredDiagnosticLogs.length === 0 ? (
+                <Text
+                  style={{
+                    color: colors.textMuted,
+                    fontSize: 13.5,
+                    textAlign: 'center',
+                    paddingVertical: 18,
+                  }}
+                >
+                  Nenhum evento registrado para este filtro.
+                </Text>
+              ) : (
+                filteredDiagnosticLogs.map((log, idx) =>
+                  renderDiagnosticLogCard(log, idx, true)
+                )
+              )}
+            </View>
           </ScrollView>
+        </View>
+      </Modal>
+
+      {/* Modal Câmera Leitora de EAN (Testador de API — CameraView estritamente self-closing) */}
+      <Modal
+        animationType="slide"
+        transparent={false}
+        visible={showEanScannerModal}
+        onRequestClose={() => setShowEanScannerModal(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: '#000000' }}>
+          <View style={{ flex: 1, position: 'relative' }}>
+            <CameraView
+              style={StyleSheet.absoluteFill}
+              facing="back"
+              barcodeScannerSettings={{
+                barcodeTypes: ['ean13', 'ean8'],
+              }}
+              onBarcodeScanned={handleDiagnosticBarcodeScanned}
+            />
+
+            <View
+              style={[
+                StyleSheet.absoluteFill,
+                {
+                  justifyContent: 'space-between',
+                  paddingTop: Platform.OS === 'android' ? 44 : 54,
+                  paddingBottom: 34,
+                  paddingHorizontal: 18,
+                },
+              ]}
+              pointerEvents="box-none"
+            >
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <View
+                  style={{
+                    backgroundColor: 'rgba(0,0,0,0.65)',
+                    paddingHorizontal: 12,
+                    paddingVertical: 7,
+                    borderRadius: 999,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: '#FFFFFF',
+                      fontSize: 13,
+                      fontWeight: 'bold',
+                    }}
+                  >
+                    Leitor EAN — Testador da API
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={() => setShowEanScannerModal(false)}
+                  style={{
+                    backgroundColor: 'rgba(0,0,0,0.72)',
+                    paddingHorizontal: 14,
+                    paddingVertical: 8,
+                    borderRadius: 999,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                  accessibilityLabel="Fechar leitor de código de barras"
+                >
+                  <FontAwesome6 name="xmark" size={14} color="#FFFFFF" />
+                  <Text
+                    style={{
+                      color: '#FFFFFF',
+                      fontSize: 13,
+                      fontWeight: 'bold',
+                    }}
+                  >
+                    Fechar
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View
+                style={{
+                  alignSelf: 'center',
+                  width: '86%',
+                  height: 150,
+                  borderWidth: 2,
+                  borderColor: '#22C55E',
+                  borderRadius: 14,
+                  backgroundColor: 'rgba(34,197,94,0.06)',
+                }}
+                pointerEvents="none"
+              />
+
+              <View
+                style={{
+                  alignSelf: 'center',
+                  backgroundColor: 'rgba(0,0,0,0.72)',
+                  paddingHorizontal: 16,
+                  paddingVertical: 9,
+                  borderRadius: 999,
+                }}
+                pointerEvents="none"
+              >
+                <Text
+                  style={{
+                    color: '#FFFFFF',
+                    fontSize: 12.5,
+                    fontWeight: '600',
+                    textAlign: 'center',
+                  }}
+                >
+                  Aponte a câmera para o código de barras (EAN-13 ou EAN-8)
+                </Text>
+              </View>
+            </View>
+          </View>
         </View>
       </Modal>
     </Modal>

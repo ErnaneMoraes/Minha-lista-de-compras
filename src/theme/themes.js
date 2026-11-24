@@ -4,6 +4,8 @@ export const THEME_IDS = {
   AMOLED: 'amoled',
   ROSE_QUARTZ: 'rose_quartz',
   OCEAN_BLUE: 'ocean_blue',
+  MATERIAL_YOU: 'material_you',
+  GOOGLE_MAPS: 'material_you', // Alias legado para compatibilidade com AsyncStorage
   NEON_MATRIX: 'neon_matrix',
   CYBERPUNK_NEON: 'cyberpunk_neon',
   CUSTOM: 'custom',
@@ -115,6 +117,35 @@ const SHARP_TECH_SHAPE = {
   borderWidth: 1.5,
 };
 
+const MATERIAL_YOU_SHAPE = {
+  radiusCard: 18,
+  radiusButton: 24,
+  radiusInput: 24,
+  borderWidth: 1,
+};
+
+const DEFAULT_TYPOGRAPHY = {
+  headingWeight: 'bold',
+  buttonWeight: 'bold',
+  letterSpacing: 0,
+  priceFontVariant: ['tabular-nums'],
+};
+
+const MATERIAL_YOU_TYPOGRAPHY = {
+  headingWeight: '600',
+  buttonWeight: '600',
+  letterSpacing: 0.2,
+  priceFontVariant: ['tabular-nums'],
+};
+
+const MATERIAL_YOU_SHADOW = {
+  shadowColor: '#202124',
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.08,
+  shadowRadius: 8,
+  elevation: 3,
+};
+
 function buildTheme({
   id,
   name,
@@ -125,6 +156,8 @@ function buildTheme({
   previewPrimary,
   shape,
   palette,
+  cardShadow = null,
+  typography = DEFAULT_TYPOGRAPHY,
 }) {
   const colors = {
     ...palette,
@@ -149,6 +182,8 @@ function buildTheme({
     previewBg,
     previewPrimary,
     shape,
+    cardShadow,
+    typography,
     colors,
   };
 }
@@ -364,6 +399,52 @@ export const THEMES = {
     },
   }),
 
+  [THEME_IDS.MATERIAL_YOU]: buildTheme({
+    id: THEME_IDS.MATERIAL_YOU,
+    name: 'Material You',
+    subtitle: 'Minimalista, cartográfico e com superfícies flutuantes',
+    isDark: false,
+    previewBg: '#F1F3F4',
+    previewPrimary: '#1A73E8',
+    shape: MATERIAL_YOU_SHAPE,
+    cardShadow: MATERIAL_YOU_SHADOW,
+    typography: MATERIAL_YOU_TYPOGRAPHY,
+    palette: {
+      principal: '#1A73E8',
+      primary: '#1A73E8',
+      verdePrincipal: '#1E8E3E',
+      verdeSuave: '#E8F0FE',
+      badgeText: '#1A73E8',
+      success: '#1E8E3E',
+      accent: '#1A73E8',
+      accentSoft: '#E8F0FE',
+      warning: '#F9AB00',
+      warningSoft: '#FEF7E0',
+      warningText: '#B06000',
+      background: '#F1F3F4',
+      card: '#FFFFFF',
+      surfaceMuted: '#F8F9FA',
+      textoPrincipal: '#FFFFFF',
+      textoClaro: '#F8F9FA',
+      textoEscuro: '#202124',
+      darkText: '#202124',
+      textMuted: '#5F6368',
+      inputBackground: '#FFFFFF',
+      borderColor: '#DADCE0',
+      dividerColor: '#E8EAED',
+      disabledBackground: '#DADCE0',
+      logoutRed: '#D93025',
+      dangerSoft: '#FCE8E6',
+      dangerText: '#A50E0E',
+      budgetWarningBg: '#FEF7E0',
+      budgetWarningBorder: '#FBBC04',
+      budgetWarningText: '#B06000',
+      budgetDangerBg: '#FCE8E6',
+      budgetDangerBorder: '#EA4335',
+      budgetDangerText: '#A50E0E',
+    },
+  }),
+
   [THEME_IDS.NEON_MATRIX]: buildTheme({
     id: THEME_IDS.NEON_MATRIX,
     name: 'Neon Matrix',
@@ -457,6 +538,7 @@ export const THEME_LIST = [
   THEMES[THEME_IDS.AMOLED],
   THEMES[THEME_IDS.ROSE_QUARTZ],
   THEMES[THEME_IDS.OCEAN_BLUE],
+  THEMES[THEME_IDS.MATERIAL_YOU],
   THEMES[THEME_IDS.NEON_MATRIX],
   THEMES[THEME_IDS.CYBERPUNK_NEON],
 ];
@@ -534,19 +616,30 @@ export function buildCustomTheme(rawConfig) {
   });
 }
 
+const LEGACY_THEME_ID_MAP = {
+  google_maps: THEME_IDS.MATERIAL_YOU,
+};
+
+export function normalizeThemeId(themeId) {
+  if (!themeId) return themeId;
+  return LEGACY_THEME_ID_MAP[themeId] || themeId;
+}
+
 export function isValidThemeId(themeId) {
+  const normalized = normalizeThemeId(themeId);
   return (
-    themeId === THEME_IDS.CUSTOM ||
-    Boolean(themeId && Object.prototype.hasOwnProperty.call(THEMES, themeId))
+    normalized === THEME_IDS.CUSTOM ||
+    Boolean(normalized && Object.prototype.hasOwnProperty.call(THEMES, normalized))
   );
 }
 
 export function getThemeById(themeId, customConfig = null) {
-  if (themeId === THEME_IDS.CUSTOM) {
+  const normalized = normalizeThemeId(themeId);
+  if (normalized === THEME_IDS.CUSTOM) {
     return buildCustomTheme(customConfig);
   }
-  if (isValidThemeId(themeId)) {
-    return THEMES[themeId];
+  if (isValidThemeId(normalized)) {
+    return THEMES[normalized];
   }
   return THEMES[THEME_IDS.LIGHT];
 }

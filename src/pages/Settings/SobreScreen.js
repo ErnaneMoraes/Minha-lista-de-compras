@@ -12,6 +12,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import globalStyles from '../../../components/StyleSheet/Styles';
 import { useAppSettings } from '../../context/AppSettingsContext';
 import appConfig from '../../../app.json';
+import {
+  APP_VERSION,
+  APP_BUILD_TAG,
+  APP_CHANGELOG,
+} from '../../constants/appVersion';
 
 export const GITHUB_REPO_URL =
   'https://github.com/ErnaneMoraes/Minha-lista-de-compras';
@@ -20,7 +25,7 @@ export default function SobreScreen() {
   const { colors, radiusCard, radiusButton, borderWidth } = useAppSettings();
   const insets = useSafeAreaInsets();
   const appName = appConfig?.expo?.name || 'Minha Lista de Compras';
-  const appVersion = appConfig?.expo?.version || '1.0.0';
+  const appVersion = APP_VERSION || appConfig?.expo?.version || '1.0.1';
 
   const handleOpenRepo = async () => {
     try {
@@ -86,6 +91,108 @@ export default function SobreScreen() {
               Gerenciamento prático de listas de compras, lembretes reutilizáveis,
               leitura de etiquetas por câmera e controle financeiro — tudo 100%
               offline no seu aparelho.
+            </Text>
+          </View>
+
+          {/* Changelog Card — Histórico de Atualizações */}
+          <View
+            style={[
+              styles.infoCard,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.borderColor,
+                borderRadius: radiusCard,
+                borderWidth,
+              },
+            ]}
+          >
+            <View style={styles.cardHeader}>
+              <View
+                style={[
+                  styles.iconBox,
+                  { backgroundColor: colors.verdeSuave },
+                ]}
+              >
+                <FontAwesome6
+                  name="clock-rotate-left"
+                  size={16}
+                  color={colors.principal}
+                />
+              </View>
+              <Text style={[styles.cardTitle, { color: colors.textoEscuro }]}>
+                Histórico de Atualizações
+              </Text>
+            </View>
+
+            {APP_CHANGELOG.map((release, idx) => (
+              <View
+                key={release.version}
+                style={[
+                  styles.changelogItem,
+                  idx < APP_CHANGELOG.length - 1 && {
+                    borderBottomWidth: 1,
+                    borderBottomColor: colors.borderColor,
+                    paddingBottom: 12,
+                    marginBottom: 12,
+                  },
+                ]}
+              >
+                <View style={styles.changelogHeaderRow}>
+                  <View
+                    style={[
+                      styles.changelogVerBadge,
+                      { backgroundColor: colors.verdeSuave },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.changelogVerText,
+                        { color: colors.principal },
+                      ]}
+                    >
+                      v{release.version}
+                    </Text>
+                  </View>
+                  <Text
+                    style={[
+                      styles.changelogDate,
+                      { color: colors.textMuted },
+                    ]}
+                  >
+                    {release.date}
+                  </Text>
+                </View>
+                <Text
+                  style={[
+                    styles.changelogTitle,
+                    { color: colors.textoEscuro },
+                  ]}
+                >
+                  {release.title}
+                </Text>
+                {release.highlights.map((bullet) => (
+                  <View key={bullet} style={styles.changelogBulletRow}>
+                    <View
+                      style={[
+                        styles.changelogDot,
+                        { backgroundColor: colors.principal },
+                      ]}
+                    />
+                    <Text
+                      style={[
+                        styles.changelogBulletText,
+                        { color: colors.textMuted },
+                      ]}
+                    >
+                      {bullet}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ))}
+
+            <Text style={[styles.buildTagText, { color: colors.textMuted }]}>
+              Build: {APP_BUILD_TAG}
             </Text>
           </View>
 
@@ -337,5 +444,54 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
     marginBottom: 8,
+  },
+  changelogItem: {
+    width: '100%',
+  },
+  changelogHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  changelogVerBadge: {
+    paddingHorizontal: 9,
+    paddingVertical: 2,
+    borderRadius: 999,
+  },
+  changelogVerText: {
+    fontSize: 11.5,
+    fontWeight: 'bold',
+  },
+  changelogDate: {
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
+  changelogTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 6,
+  },
+  changelogBulletRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 4,
+  },
+  changelogDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    marginTop: 7,
+    marginRight: 8,
+  },
+  changelogBulletText: {
+    flex: 1,
+    fontSize: 12.5,
+    lineHeight: 18,
+  },
+  buildTagText: {
+    fontSize: 11,
+    marginTop: 10,
+    textAlign: 'right',
   },
 });

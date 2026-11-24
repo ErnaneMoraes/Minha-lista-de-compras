@@ -17,6 +17,7 @@ import {
   getDiagnosticLogs,
   formatDiagnosticLogsAsText,
   getAnonymousDeviceContext,
+  getChangelogSummary,
 } from './diagnosticLogService';
 
 export async function buildDiagnosticZipBundle() {
@@ -61,6 +62,7 @@ export async function buildDiagnosticZipBundle() {
     appId: BACKUP_APP_ID,
     exportedAt: new Date().toISOString(),
     deviceContext: getAnonymousDeviceContext(),
+    changelogSummary: getChangelogSummary(),
     privacyNote:
       'Exportação técnica anônima (LGPD): sem dados pessoais, contas, IP ou identificadores únicos.',
     data: {

@@ -1,6 +1,6 @@
 {
   "name": "minha-lista-de-compras",
-  "version": "1.0.0",
+  "version": "1.0.4",
   "private": true,
   "license": "0BSD",
   "main": "index.js",

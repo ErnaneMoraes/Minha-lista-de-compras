@@ -22,12 +22,12 @@ const TAX_KEYWORDS_RE =
 const TAX_HEX_RE =
   /(?:^|[\s-])-[\s]*[0-9A-F]{5,8}\b|\b(?=[0-9A-F]*\d)(?=[0-9A-F]*[A-F])[0-9A-F]{5,8}\b/i;
 const REFERENCE_PRICE_RE =
-  /\b(PRECO\s*(?:DO\s*|POR\s*|EQUIVALE\s*A?\s*)?(?:LITRO|L\b|LT\b|KG|QUILO|100\s*G|100\s*ML|UNID|UN\b|METRO)|PRECO\s+EQUIVALE|EQUIVALE\s+A|VALOR\s*(?:POR\s+|DO\s+)?(?:LITRO|KG|100)|POR\s*(?:KG|LITRO|L\b|LT\b|QUILO)|P\/\s*(?:KG|L\b|LT\b|LITRO))\b|R[\$S5]\s*\/\s*(?:KG|L\b|LT\b|LITRO|ML|UN)/i;
+  /\b(DE\s*:|PRECO\s*(?:DO\s*|POR\s*|EQUIVALE\s*A?\s*)?(?:LITRO|L\b|LT\b|KG|QUILO|100\s*GR?|100\s*ML|UNID|UN\b|METRO)|PRECO\s+EQUIVALE|EQUIVALE\s+A|VALOR\s*(?:POR\s+|DO\s+)?(?:LITRO|KG|UN\b|100\s*GR?|100\s*ML|100)|POR\s*(?:KG|LITRO|L\b|LT\b|QUILO)|P\/\s*(?:KG|L\b|LT\b|LITRO|NAO\s+COOPERADO)|NAO\s+COOPERADO)\b|R[\$S5]\s*\/\s*(?:KG|L\b|LT\b|LITRO|ML|UN)/i;
 const THREE_DECIMAL_PRICE_RE = /\bR?\$?\s*\d+[.,]\d{3}\b/;
 const META_NOISE_RE =
-  /\b(CAMPANHA|COD\.?|CODIGO|PLU|EAN|VALIDADE|VALIDO\s+ATE|VAL\.|LOTE|EMISSAO|EMBALADO|TARA|PESO|ATUALIZ\w*|LOJA|SECAO|SEC\.?\s*:?|OFERTA\s+VALIDA)\b/i;
+  /\b(CAMPANHA|COD\.?|CODIGO|PLU|EAN|VALIDADE|VALIDO\s+ATE|VAL\.|LOTE|EMISSAO|EMBALADO|TARA|PESO|ATUALIZ\w*|LOJA|SECAO|SEC\.?\s*:?|OFERTA\s+VALIDA|BAIXE\s+O\s+APP)\b/i;
 const NON_PRODUCT_KEYWORDS_RE =
-  /\b(IBPT|1BPT|VL\.?\s*APROX|APROX|TRIB|TRIBUTOS?|IMPOSTOS?|PRECO\s+LITRO|PRECO\s+KG|VALOR\s+KG|PRECO\s+UN|POR\s+KG|POR\s+LITRO|ATACADO|ATAC\.?|VAREJO|VAR\.?|CARTAO|CLUBE|UNIDADE|VALIDADE|VALIDO\s+ATE|EMBALADO|TARA|PESO|TOTAL|LOTE|COD\.?|CODIGO|EAN|A\s*PARTIR\s*DE|LEVANDO\s*\d+|PRECO\s+UNITARIO|UNITARIO)\b|R[\$S5]\s*\/\s*(?:KG|L\b|LT\b)/i;
+  /\b(IBPT|1BPT|VL\.?\s*APROX|APROX|TRIB|TRIBUTOS?|IMPOSTOS?|PRECO\s+LITRO|PRECO\s+KG|VALOR\s+KG|VALOR\s+100\s*GR?|VALOR\s+UN|VALOR|PRECO\s+UN|POR\s+KG|POR\s+LITRO|ATACADO|ATAC\.?|VAREJO|VAR\.?|CARTAO|CLUBE|UNIDADE|VALIDADE|VALIDO\s+ATE|EMBALADO|TARA|PESO|TOTAL|DE\s*:|POR\s*:|A\s+VISTA|OFERTA|BAIXE\s+O\s+APP|NAO\s+COOPERADO|COOPERADO|LOTE|COD\.?|CODIGO|EAN|A\s*PARTIR\s*DE|LEVANDO\s*\d+|PRECO\s+UNITARIO|UNITARIO)\b|R[\$S5]\s*\/\s*(?:KG|L\b|LT\b)/i;
 
 const DATE_NOISE_RE = /\b\d{1,2}[\/.-]\d{1,2}[\/.-](?:\d{4}|\d{2})\b/g;
 const BARCODE_SEQUENCE_RE = /\b(?:\d{8,14}|\d\s+\d{5,6}\s+\d{5,6})\b/g;
@@ -465,21 +465,25 @@ function extractMainPrice(annotatedLines, wordRecords, imageWidth, imageHeight) 
     });
   };
 
+  const PRIMARY_PRICE_ANCHOR_RE = /\b(TOTAL|POR\s*:|A\s+VISTA)\b/i;
   const totalAnchorLines = annotatedLines.filter((line) =>
-    /\bTOTAL\b/i.test(stripAccents(line.text))
+    PRIMARY_PRICE_ANCHOR_RE.test(stripAccents(line.text))
   );
 
   const isNearTotalAnchor = (targetBbox, lineIndex = -1) => {
     if (lineIndex >= 0) {
       const currentLine = annotatedLines[lineIndex];
-      if (currentLine && /\bTOTAL\b/i.test(stripAccents(currentLine.text))) {
+      if (
+        currentLine &&
+        PRIMARY_PRICE_ANCHOR_RE.test(stripAccents(currentLine.text))
+      ) {
         return true;
       }
       if (lineIndex > 0) {
         const prevLine = annotatedLines[lineIndex - 1];
         if (
           prevLine &&
-          /\bTOTAL\b/i.test(stripAccents(prevLine.text)) &&
+          PRIMARY_PRICE_ANCHOR_RE.test(stripAccents(prevLine.text)) &&
           !/\d{1,4}\s*[,.]\s*\d{2}/.test(prevLine.text)
         ) {
           return true;
@@ -493,12 +497,90 @@ function extractMainPrice(annotatedLines, wordRecords, imageWidth, imageHeight) 
       const sameRow = overlapsLineVertically(tl.bbox, targetBbox);
       const directlyBelow =
         targetBbox.y0 >= tl.bbox.y0 - 6 &&
-        targetBbox.y0 <= tl.bbox.y1 + Math.max(tl.bbox.height * 2.2, 65) &&
-        targetBbox.x1 >= tl.bbox.x0 - 40 &&
-        targetBbox.x0 <= tl.bbox.x1 + 120;
+        targetBbox.y0 <= tl.bbox.y1 + Math.max(tl.bbox.height * 2.5, 85) &&
+        targetBbox.x1 >= tl.bbox.x0 - 50 &&
+        targetBbox.x0 <= tl.bbox.x1 + 140;
       return sameRow || directlyBelow;
     });
   };
+
+  // Mediana da altura das palavras para identificar tipografia grande de exibição (cartazes e etiquetas promocionais)
+  const validWordHeights = wordRecords
+    .filter((w) => w.bbox.hasBbox && w.bbox.height > 0)
+    .map((w) => w.bbox.height)
+    .sort((a, b) => a - b);
+  const medianWordHeight =
+    validWordHeights.length > 0
+      ? validWordHeights[Math.floor(validWordHeights.length / 2)]
+      : 0;
+
+  // 0. Junção geométrica 2D de centavos sobrescritos (ex: "9" grande + ",49" sobrescrito -> 9,49; "12" + ",98" -> 12,98)
+  for (const intWord of wordRecords) {
+    if (!intWord.bbox.hasBbox) continue;
+    const intNorm = normalizePriceTokenDigits(intWord.text).replace(/\s+/g, '');
+    const intMatch = intNorm.match(/^(R\$)?(\d{1,4})$/i);
+    if (!intMatch) continue;
+    const intH = intWord.bbox.height;
+    if (medianWordHeight > 0 && intH < medianWordHeight * 1.35) continue;
+    if (isInNoiseContext(intWord.bbox, intWord.text)) continue;
+
+    for (const centsWord of wordRecords) {
+      if (centsWord === intWord || !centsWord.bbox.hasBbox) continue;
+      const centsNorm = normalizePriceTokenDigits(centsWord.text).replace(
+        /\s+/g,
+        ''
+      );
+      const centsMatch = centsNorm.match(/^([,.])(\d{2})$/);
+      if (!centsMatch) continue;
+
+      const hGap = centsWord.bbox.x0 - intWord.bbox.x1;
+      if (hGap < -8 || hGap > intH * 0.9) continue;
+
+      const verticalAligned =
+        centsWord.bbox.y0 >= intWord.bbox.y0 - intH * 0.3 &&
+        centsWord.bbox.y1 <= intWord.bbox.y1 + intH * 0.25;
+      if (!verticalAligned) continue;
+
+      const value = parseFloat(`${intMatch[2]}.${centsMatch[2]}`);
+      if (!Number.isFinite(value) || value <= 0 || value > 9999.99) continue;
+
+      const combinedBbox = {
+        x0: Math.min(intWord.bbox.x0, centsWord.bbox.x0),
+        y0: Math.min(intWord.bbox.y0, centsWord.bbox.y0),
+        x1: Math.max(intWord.bbox.x1, centsWord.bbox.x1),
+        y1: Math.max(intWord.bbox.y1, centsWord.bbox.y1),
+        width:
+          Math.max(intWord.bbox.x1, centsWord.bbox.x1) -
+          Math.min(intWord.bbox.x0, centsWord.bbox.x0),
+        height: intH,
+        hasBbox: true,
+      };
+      if (isInNoiseContext(combinedBbox, `${intWord.text}${centsWord.text}`)) {
+        continue;
+      }
+
+      const hasRDollar =
+        Boolean(intMatch[1]) || hasNearbyRDollar(combinedBbox);
+      const isTotalAnchored = isNearTotalAnchor(combinedBbox);
+      const score = scorePriceCandidate({
+        bbox: combinedBbox,
+        hasComma: centsMatch[1] === ',',
+        hasRDollar,
+        isTotalAnchored,
+        imageWidth,
+        imageHeight,
+      });
+
+      candidates.push({
+        value,
+        raw: `${intMatch[2]}${centsMatch[1]}${centsMatch[2]}`,
+        hasRDollar,
+        height: isTotalAnchored ? Math.max(intH, maxHeight * 1.05) : intH,
+        score: score + 40,
+        bbox: combinedBbox,
+      });
+    }
+  }
 
   // 1. Word-level standalone and prefixed currency matches (including attached suffixes like R$1,39UNID)
   for (const word of wordRecords) {
@@ -1202,11 +1284,10 @@ export function inferCategoryFromName(name) {
 export function isValidGtinBarcode(code) {
   const digits = String(code || '').replace(/\D/g, '');
   const n = digits.length;
-  // Aceita exclusivamente EAN-13 (13 dígitos) ou EAN-8 (8 dígitos), rejeitando fragmentos truncados de 12 dígitos
+  // Aceita exclusivamente EAN-13 brasileiro (789/790) ou EAN-8 comercial
   if (n !== 8 && n !== 13) return false;
   if (digits.startsWith('2')) return false;
-  // Prefixos 98x e 99x em EAN-13 são reservados para cupons/uso interno (nunca produtos de varejo)
-  if (n === 13 && (digits.startsWith('98') || digits.startsWith('99'))) {
+  if (n === 13 && !digits.startsWith('789') && !digits.startsWith('790')) {
     return false;
   }
   if (/^(\d)\1+$/.test(digits)) return false;

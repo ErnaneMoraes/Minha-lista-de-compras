@@ -11,6 +11,7 @@ import {
   DEFAULT_CUSTOM_THEME_CONFIG,
   getThemeById,
   isValidThemeId,
+  normalizeThemeId,
 } from '../theme/themes';
 import {
   RETENTION_DAY_OPTIONS,
@@ -40,6 +41,10 @@ const AppSettingsContext = createContext({
   tagPhotoRetentionDays: DEFAULT_RETENTION_DAYS,
   colors: defaultTheme.colors,
   shape: defaultTheme.shape,
+  cardShadow: defaultTheme.cardShadow || null,
+  typography: defaultTheme.typography || null,
+  isMaterialYouTheme: false,
+  isGoogleMapsTheme: false,
   radiusCard: defaultTheme.shape.radiusCard,
   radiusButton: defaultTheme.shape.radiusButton,
   radiusInput: defaultTheme.shape.radiusInput,
@@ -96,8 +101,9 @@ export function AppSettingsProvider({ children }) {
 
   const setThemeId = useCallback(
     async (nextThemeId) => {
-      const safeId = isValidThemeId(nextThemeId)
-        ? nextThemeId
+      const normalized = normalizeThemeId(nextThemeId);
+      const safeId = isValidThemeId(normalized)
+        ? normalized
         : THEME_IDS.LIGHT;
       const nextTheme = getThemeById(safeId, customThemeConfig);
       setSettings((prev) => ({
@@ -218,6 +224,10 @@ export function AppSettingsProvider({ children }) {
           settings.tagPhotoRetentionDays || DEFAULT_RETENTION_DAYS,
         colors: activeTheme.colors,
         shape: activeTheme.shape,
+        cardShadow: activeTheme.cardShadow || null,
+        typography: activeTheme.typography || null,
+        isMaterialYouTheme: activeTheme.id === THEME_IDS.MATERIAL_YOU,
+        isGoogleMapsTheme: activeTheme.id === THEME_IDS.MATERIAL_YOU,
         radiusCard: activeTheme.shape.radiusCard,
         radiusButton: activeTheme.shape.radiusButton,
         radiusInput: activeTheme.shape.radiusInput,

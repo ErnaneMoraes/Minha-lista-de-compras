@@ -53,12 +53,12 @@ const HELP_SECTIONS = [
         text: 'Toque no ícone de câmera à direita na barra inferior. Você pode apontar primeiro para o código de barras comercial (EAN-13 ou EAN-8) do produto ou da etiqueta até aparecer "Código lido" (ele fica travado para não ser trocado por acidente), afastar o celular para fotografar a etiqueta inteira de preço e confirmar o recorte verde já pré-ajustado. Se ler o código errado, basta tocar em "Recomeçar" para escanear novamente. Em Configurações > Fotos das Etiquetas, você também pode silenciar o som da câmera.',
       },
       {
-        label: 'Etiquetas com mais de um preço e etiquetas de balança:',
-        text: 'Quando a etiqueta tiver dois preços principais de destaque (como varejo e atacado/clube), o app exibe as opções para você escolher com um toque. Em etiquetas de balança (açougue, frios e padaria), o app prioriza automaticamente o valor TOTAL da embalagem e ignora o preço por quilo (R$/kg), tara, peso e impostos (IBPT).',
+        label: 'Etiquetas promocionais, cartazes e etiquetas de balança:',
+        text: 'O leitor geométrico reconhece preços grandes com centavos sobrescritos (como cartazes e etiquetas "DE / POR"), prioriza automaticamente valores de "POR:", "À VISTA" e "TOTAL", e ignora preços riscados ("DE:"), valores por 100g/quilo ("VALOR 100GR", "R$/kg"), "P/ não cooperado", tara, peso e impostos (IBPT).',
       },
       {
-        label: 'Identificação Híbrida e Ícone de Origem:',
-        text: 'A consulta online ocorre exclusivamente quando um código de barras comercial (EAN) é lido, garantindo rapidez offline instantânea e mínimo consumo de dados móveis. O ícone discreto no canto inferior esquerdo da foto indica a origem: globo (Open Food Facts via EAN, ~1 KB), raio (Cache Local instantâneo sem rede) ou câmera (Leitura Local 100% offline por OCR). O preço vem sempre direto da etiqueta fotografada.',
+        label: 'Identificação Híbrida (GS1 Brasil) e Ícone de Origem:',
+        text: 'A consulta online ocorre exclusivamente quando um código de barras comercial brasileiro válido (EAN-13 789/790 ou EAN-8) é lido pela câmera, garantindo rapidez offline instantânea e mínimo consumo de dados. O ícone discreto no canto inferior esquerdo da foto indica a origem: globo (Open Food Facts via EAN, ~1 KB), raio (Cache Local instantâneo sem rede) ou câmera (Leitura Local 100% offline por OCR). O preço vem sempre direto da etiqueta fotografada.',
       },
     ],
   },
@@ -127,7 +127,7 @@ const HELP_SECTIONS = [
       },
       {
         label: 'Galeria de Etiquetas, Backup .zip e Exclusão de Dados:',
-        text: 'Na Galeria de Etiquetas você busca por produto, filtra por data/mês e gerencia suas fotos. No Backup Completo (.zip) ou de Apenas Fotos (.zip), todas as imagens vão compactadas e são restauradas automaticamente. Em Configurações > Excluir Dados, você também pode limpar apenas fotos, listas, lembretes ou zerar o app com confirmação segura e atalho para fazer backup antes.',
+        text: 'Na Galeria de Etiquetas você busca por produto, filtra por data/mês e gerencia suas fotos. No Backup Completo (.zip) ou de Apenas Fotos (.zip), todas as imagens vão compactadas e são restauradas automaticamente. Em Configurações > Excluir Dados, você pode limpar apenas fotos, listas, lembretes ou zerar completamente o app (incluindo cache de produtos e logs de diagnóstico) com atalho para fazer backup antes. Você também pode acompanhar o Histórico de Atualizações em Configurações > Sobre.',
       },
     ],
   },
@@ -298,9 +298,9 @@ export default function AjudaScreen({ navigation }) {
                 Dica:{' '}
               </Text>
               Em Configurações você também pode personalizar a aparência do
-              aplicativo escolhendo entre 7 temas exclusivos (incluindo Claro,
-              Noturno, AMOLED Escuro, Rose Quartz, Azul Oceano, Neon Matrix e
-              Cyberpunk Neon).
+              aplicativo escolhendo entre 8 temas exclusivos (incluindo Claro,
+              Noturno, AMOLED Escuro, Rose Quartz, Azul Oceano, Material You,
+              Neon Matrix e Cyberpunk Neon) ou montando seu tema Personalizado.
             </Text>
           </View>
         </View>

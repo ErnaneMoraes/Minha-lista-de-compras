@@ -371,10 +371,24 @@ function composeDisplayName(nomeBase, marca, quantidade) {
   return parts.join(' ').replace(/\s+/g, ' ').trim();
 }
 
+export function isValidApiProductName(name) {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return false;
+  // Rejeita nomes puramente numéricos / códigos de barras (ex: "7896045101641")
+  if (/^\d[\d\s.-]*$/.test(trimmed)) return false;
+  const alphaCount = (trimmed.match(/[A-Za-zÀ-ÿ]/g) || []).length;
+  return alphaCount >= 3;
+}
+
 function normalizeOffProduct(rawProduct, fallbackBarcode = '', origem = 'api') {
-  const nomeBase = String(
-    rawProduct?.product_name_pt || rawProduct?.product_name || ''
-  ).trim();
+  const candidates = [
+    rawProduct?.product_name_pt,
+    rawProduct?.product_name,
+    rawProduct?.generic_name_pt,
+  ];
+  const validName =
+    candidates.find((c) => isValidApiProductName(c)) || '';
+  const nomeBase = String(validName).trim();
   const marca = String(rawProduct?.brands || '')
     .split(',')[0]
     .trim();
@@ -397,6 +411,27 @@ function normalizeOffProduct(rawProduct, fallbackBarcode = '', origem = 'api') {
     imagemUrl: '',
     origem,
   };
+}
+
+export async function clearProductLookupCache() {
+  try {
+    await AsyncStorage.removeItem(OFF_CACHE_STORAGE_KEY);
+  } catch {
+    // ignore cache clear errors
+  }
+}
+
+async function deleteCompactCacheEntry(cacheKey) {
+  if (!cacheKey) return;
+  try {
+    const cache = await readProductCache();
+    if (cache[cacheKey]) {
+      delete cache[cacheKey];
+      await AsyncStorage.setItem(OFF_CACHE_STORAGE_KEY, JSON.stringify(cache));
+    }
+  } catch {
+    // ignore delete failures
+  }
 }
 
 async function readProductCache() {
@@ -502,10 +537,10 @@ async function fetchJsonWithTimeout(url, timeoutMs = FETCH_TIMEOUT_MS) {
 export function isValidGtinBarcode(barcode) {
   const digits = String(barcode || '').replace(/\D/g, '');
   const n = digits.length;
-  // Aceita exclusivamente EAN-13 (13 dígitos) ou EAN-8 (8 dígitos), rejeitando fragmentos truncados de 12 dígitos
+  // Aceita exclusivamente EAN-13 brasileiro (789/790) ou EAN-8 comercial
   if (n !== 8 && n !== 13) return false;
   if (digits.startsWith('2')) return false;
-  if (n === 13 && (digits.startsWith('98') || digits.startsWith('99'))) {
+  if (n === 13 && !digits.startsWith('789') && !digits.startsWith('790')) {
     return false;
   }
   if (/^(\d)\1+$/.test(digits)) return false;
@@ -552,20 +587,32 @@ export async function identificarProdutoDaEtiqueta({
   const cache = bypassCache ? {} : await readProductCache();
   if (!bypassCache && eanCacheKey && cache[eanCacheKey]) {
     const decoded = decodeCompactCacheEntry(cache[eanCacheKey], cleanBarcode);
-    if (decoded) {
+    if (decoded && !isValidApiProductName(decoded.nome)) {
+      // Remove entrada corrompida ou numérica do cache
+      await deleteCompactCacheEntry(eanCacheKey);
+    } else if (decoded) {
+      // Revalida automaticamente categorias antigas ('Outros' ou 'Hortifruti') usando o dicionário atualizado
+      let effectiveCategory = decoded.categoriaSugerida;
+      if (
+        effectiveCategory === 'Outros' ||
+        effectiveCategory === 'Hortifruti'
+      ) {
+        const revalidated = inferCategorySmart(decoded.nome);
+        if (revalidated) {
+          effectiveCategory = normalizeCategoryName(revalidated);
+        }
+      }
+      decoded.categoriaSugerida = effectiveCategory;
+
       const durationMs = Date.now() - startedAtMs;
-      writeCompactCacheEntry(
-        eanCacheKey,
-        decoded.nome,
-        decoded.categoriaSugerida
-      );
+      writeCompactCacheEntry(eanCacheKey, decoded.nome, effectiveCategory);
       await appendDiagnosticLog({
         ...baseLog,
         routeTaken: 'Cache Hit (EAN)',
         requestUrl: '',
         httpStatus: 'Local',
         durationMs,
-        apiResultSummary: `Cache: ${decoded.nome}`,
+        apiResultSummary: `Cache: ${decoded.nome} (${effectiveCategory})`,
         finalOrigin: 'cache',
       });
       return {
@@ -573,32 +620,6 @@ export async function identificarProdutoDaEtiqueta({
         httpStatus: 'Local',
         durationMs,
         routeTaken: 'Cache Hit (EAN)',
-      };
-    }
-  }
-  if (!bypassCache && !commercialBarcode && textCacheKey && cache[textCacheKey]) {
-    const decoded = decodeCompactCacheEntry(cache[textCacheKey], cleanBarcode);
-    if (decoded) {
-      const durationMs = Date.now() - startedAtMs;
-      writeCompactCacheEntry(
-        textCacheKey,
-        decoded.nome,
-        decoded.categoriaSugerida
-      );
-      await appendDiagnosticLog({
-        ...baseLog,
-        routeTaken: 'Cache Hit (Texto)',
-        requestUrl: '',
-        httpStatus: 'Local',
-        durationMs,
-        apiResultSummary: `Cache: ${decoded.nome}`,
-        finalOrigin: 'cache',
-      });
-      return {
-        ...decoded,
-        httpStatus: 'Local',
-        durationMs,
-        routeTaken: 'Cache Hit (Texto)',
       };
     }
   }
@@ -608,12 +629,22 @@ export async function identificarProdutoDaEtiqueta({
   let lastStatus = '-';
   let lastSummary = 'Sem correspondência';
 
-  // 2. Flow 1 — Commercial Barcode (API v2, minimal text-only fields, ~1 KB payload)
+  // 2. Flow 1 — Commercial Barcode (GS1 Brasil 789/790 ou EAN-8, timeout 6.5s + 1 retry rápido em 5xx/rede)
   if (commercialBarcode) {
-    const url = `https://world.openfoodfacts.org/api/v2/product/${cleanBarcode}.json?fields=product_name,product_name_pt,brands,categories_tags,quantity`;
+    const url = `https://world.openfoodfacts.org/api/v2/product/${cleanBarcode}.json?fields=product_name,product_name_pt,generic_name_pt,brands,categories_tags,quantity`;
     lastRoute = 'Fluxo 1: EAN API v2';
     lastUrl = url;
-    const res = await fetchJsonWithTimeout(url);
+
+    let res = await fetchJsonWithTimeout(url, FETCH_TIMEOUT_MS);
+    const isTransientFailure =
+      !res.ok &&
+      (res.status === 'Erro de Rede' ||
+        String(res.status).startsWith('Timeout') ||
+        (typeof res.status === 'number' && res.status >= 500));
+    if (isTransientFailure) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      res = await fetchJsonWithTimeout(url, FETCH_TIMEOUT_MS);
+    }
     lastStatus = res.status;
 
     if (res.ok && res.data?.status === 1 && res.data?.product) {
@@ -622,10 +653,12 @@ export async function identificarProdutoDaEtiqueta({
         cleanBarcode,
         'api'
       );
+      const safeLocalName = isReadableProductTitle(textoLimpo) ? textoLimpo : '';
+
       if (normalized.nome) {
         normalized.nome = cleanOrPreferProductTitle(
           normalized.nome,
-          textoLimpo
+          safeLocalName
         );
         const durationMs = Date.now() - startedAtMs;
         const display = composeDisplayName(
@@ -652,9 +685,36 @@ export async function identificarProdutoDaEtiqueta({
           httpStatus: res.status,
           durationMs,
           routeTaken: lastRoute,
+          rawPayload: res.data?.product || res.data || null,
         };
       }
-      lastSummary = 'status: 1 (nome vazio na resposta)';
+
+      // Nome retornado pela API era inválido/numérico (ex: "7896045101641"): preserva categoria/quantidade da API e usa título OCR limpo
+      const fallbackWithApiMeta = {
+        ...normalized,
+        nome: safeLocalName,
+        categoriaSugerida:
+          normalized.categoriaSugerida !== 'Outros'
+            ? normalized.categoriaSugerida
+            : safeLocalName
+              ? mapCategoryFromProduct(safeLocalName, [])
+              : 'Outros',
+        origem: 'ocr_local',
+        httpStatus: res.status,
+        durationMs: Date.now() - startedAtMs,
+        routeTaken: `${lastRoute} (nome numérico rejeitado)`,
+        rawPayload: res.data?.product || res.data || null,
+      };
+      await appendDiagnosticLog({
+        ...baseLog,
+        routeTaken: fallbackWithApiMeta.routeTaken,
+        requestUrl: url,
+        httpStatus: res.status,
+        durationMs: fallbackWithApiMeta.durationMs,
+        apiResultSummary: `Nome da API rejeitado (numérico/curto) — mantido OCR: "${safeLocalName || '(vazio)'}" (${fallbackWithApiMeta.categoriaSugerida})`,
+        finalOrigin: 'ocr_local',
+      });
+      return fallbackWithApiMeta;
     } else if (res.ok) {
       lastSummary = `status: ${res.data?.status ?? 0} (não encontrado)`;
     } else {

@@ -30,8 +30,16 @@ const STATUS_FILTERS = [
 ];
 
 export default function ListasScreen({ navigation }) {
-  const { colors, radiusCard, radiusButton, borderWidth, dataVersion } =
-    useAppSettings();
+  const {
+    colors,
+    cardShadow,
+    typography,
+    isGoogleMapsTheme,
+    radiusCard,
+    radiusButton,
+    borderWidth,
+    dataVersion,
+  } = useAppSettings();
   const [lists, setLists] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'open' | 'completed'
@@ -211,8 +219,9 @@ export default function ListasScreen({ navigation }) {
             borderWidth: isSelected ? 2 : borderWidth,
             borderRadius: radiusCard,
           },
+          cardShadow,
         ]}
-        activeOpacity={0.85}
+        activeOpacity={0.82}
         onLongPress={() => {
           if (!selectionMode) {
             handleEnterSelectionMode(item.id);
@@ -249,7 +258,14 @@ export default function ListasScreen({ navigation }) {
           <View style={{ flex: 1, marginRight: 10 }}>
             <View style={localStyles.titleRow}>
               <Text
-                style={[localStyles.cardTitle, { color: colors.textoEscuro }]}
+                style={[
+                  localStyles.cardTitle,
+                  {
+                    color: colors.textoEscuro,
+                    fontWeight: typography?.headingWeight || 'bold',
+                    letterSpacing: typography?.letterSpacing || 0,
+                  },
+                ]}
                 numberOfLines={1}
               >
                 {item.name}
@@ -344,7 +360,7 @@ export default function ListasScreen({ navigation }) {
         <View
           style={[
             localStyles.cardFooter,
-            { borderTopColor: colors.surfaceMuted },
+            { borderTopColor: colors.dividerColor || colors.surfaceMuted },
           ]}
         >
           <Text style={[localStyles.itemCountText, { color: colors.textMuted }]}>
@@ -352,9 +368,23 @@ export default function ListasScreen({ navigation }) {
             {stats.totalQuantity} {stats.totalQuantity === 1 ? 'unidade' : 'unidades'}
           </Text>
           <View
-            style={[localStyles.totalBadge, { backgroundColor: totalBadgeBg }]}
+            style={[
+              localStyles.totalBadge,
+              {
+                backgroundColor: totalBadgeBg,
+                borderRadius: isGoogleMapsTheme ? 999 : 8,
+              },
+            ]}
           >
-            <Text style={[localStyles.totalValue, { color: totalBadgeText }]}>
+            <Text
+              style={[
+                localStyles.totalValue,
+                {
+                  color: totalBadgeText,
+                  fontVariant: ['tabular-nums'],
+                },
+              ]}
+            >
               {formatCurrency(stats.estimatedTotal)}
             </Text>
           </View>
@@ -380,7 +410,9 @@ export default function ListasScreen({ navigation }) {
                 {
                   backgroundColor: colors.card,
                   borderColor: colors.borderColor,
+                  borderRadius: isGoogleMapsTheme ? 999 : 12,
                 },
+                cardShadow,
               ]}
             >
               {STATUS_FILTERS.map((tab) => {
@@ -392,6 +424,7 @@ export default function ListasScreen({ navigation }) {
                     onPress={() => handleChangeStatusFilter(tab.key)}
                     style={[
                       localStyles.statusFilterTab,
+                      isGoogleMapsTheme && { borderRadius: 999 },
                       active && { backgroundColor: colors.principal },
                     ]}
                   >

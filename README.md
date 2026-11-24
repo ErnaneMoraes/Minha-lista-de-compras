@@ -66,19 +66,20 @@ O **Minha Lista de Compras** resolve isso ao oferecer:
   - **Apenas Fotos das Etiquetas (`.zip`):** Exporta todas as fotos salvas junto a um `photos_manifest.json` com metadados dos produtos.
   - **Apenas Listas de Compras (`.json`)** e **Apenas Lembretes (`.json`):** Arquivos leves ideais para compartilhar listas rapidamente.
 - **Importação Automática (`.zip` e `.json`) + Android "Abrir com...":** Detecta automaticamente o formato do arquivo (seja pelo seletor nas Configurações ou abrindo diretamente um `.zip` / `.json` no Android), restaura as imagens para `tag_photos/` e revincula os itens após confirmação.
-- **Exclusão Granular (`Configurações > Excluir Dados`):** Permite apagar separadamente **Todas as Fotos das Etiquetas**, **Todas as Listas de Compras**, **Todas as Listas de Lembretes** ou **Todos os Dados do Aplicativo**, sempre com `ConfirmModal` e botão de atalho **"Fazer Backup Antes"** nas exclusões em massa.
+- **Exclusão Granular (`Configurações > Excluir Dados`):** Permite apagar separadamente **Todas as Fotos das Etiquetas**, **Todas as Listas de Compras**, **Todas as Listas de Lembretes** ou **Todos os Dados do Aplicativo** (incluindo cache de produtos e logs de diagnóstico), sempre com `ConfirmModal` e botão de atalho **"Fazer Backup Antes"** nas exclusões em massa.
 
 ### 7. Experiência do Usuário, Multi-Temas, Onboarding e Documentação Interna
 - **Configurações em Acordeões Recolhíveis:** Seções organizadas em acordeões (**Temas**, **Fotos das Etiquetas**, **Backup de Dados** e **Suporte e Informações**) que iniciam recolhidos para navegação limpa.
-- **Sistema Multi-Temas com Geometria Adaptativa (7 temas + Personalizado):** Lista vertical com amostras bicolores e construtor completo do tema **Personalizado** (Modo Base, 12 cores principais, estilo das bordas e espessura do contorno):
+- **Sistema Multi-Temas com Geometria Adaptativa (8 temas + Personalizado):** Lista vertical com amostras bicolores e construtor completo do tema **Personalizado** (Modo Base, 12 cores principais, estilo das bordas e espessura do contorno):
   - **Claro Padrão** e **Noturno Padrão** (cantos suaves)
   - **AMOLED Escuro** (preto puro `#000000` com esmeralda)
   - **Rose Quartz** (tons suaves de rosa com cantos extra-arredondados)
   - **Azul Oceano** (azul gelo e oceano)
+  - **Material You** (minimalista, cartográfico claro `#F1F3F4`, azul `#1A73E8`, botões/filtros em pílula, cartões brancos com superfícies flutuantes e preços tabulares)
   - **Neon Matrix** e **Cyberpunk Neon** (paletas neon de alto contraste com geometria reta/tech)
 - **Onboarding Compacto e Revisitável:** Tela inicial de boas-vindas com cabeçalho enxuto, 4 guias práticos diretos ao ponto e configuração de fotos/retenção (persistida em `@mlc_offline:onboarding_completed`), podendo ser revista a qualquer momento pelo botão **"Rever Tela de Boas-Vindas (Onboarding)"** em **Configurações > Ajuda**.
-- **Telas de Ajuda e Sobre:** Acessíveis em **Configurações**, oferecendo um guia passo a passo em linguagem simples para usuários leigos (`Ajuda`) e informações de versão, privacidade 100% offline e link do repositório oficial (`Sobre`).
-- **Resiliência, Privacidade (LGPD) e Performance:** Proteção global com `<ErrorBoundary>` (tela amigável de recuperação sem perda de dados), logs técnicos locais anônimos em conformidade com a LGPD (sem coleta de dados pessoais, contas, IP ou identificadores únicos), otimização de renderização com `React.memo` nos itens das listas e confirmações seguras via `ConfirmModal`.
+- **Telas de Ajuda e Sobre (com Histórico de Atualizações):** Acessíveis em **Configurações**, oferecendo guia passo a passo (`Ajuda`) e informações de versão semântica (`v1.0.4`), **Histórico de Atualizações** centralizado (`src/constants/appVersion.js`), privacidade 100% offline e link do repositório oficial (`Sobre`).
+- **Resiliência, Privacidade (LGPD) e Telemetria Local:** Proteção global com `<ErrorBoundary>`, logs técnicos locais anônimos em conformidade com a LGPD (com versão/build, registro de falhas e telemetria comparando preenchimento automático vs. editado manualmente, sem coleta de dados pessoais), otimização com `React.memo` e confirmações seguras via `ConfirmModal`.
 
 ---
 
@@ -93,13 +94,12 @@ O aplicativo utiliza uma pipeline otimizada para etiquetas de prateleira brasile
 3. **Motor OCR Offline:**
    - **Web:** Execução direta via `tesseract.js`.
    - **Mobile (Android/iOS):** Ponte headless via `react-native-webview` com Tesseract.js embarcado.
-4. **Parser Inteligente, Etiquetas de Balança e Múltiplos Preços (`labelParser.js`):**
-   - Filtra ruídos como impostos (`IBPT`), datas, códigos de seção (`Sec.:`), metadados de balança (`TARA`, `PESO`, `EMBALADO`, `VALIDO ATE`) e preços de referência fracionados (`POR LITRO`, `PRECO EQUIVALE`, `P/Lt`, `P/KG`, `R$/kg`, `RS/kg`, `VALOR KG`, valores com 3 decimais).
-   - Prioriza explicitamente o valor ancorado à palavra **`TOTAL`** em etiquetas de balança (ex.: `TOTAL R$ 11,02` sobre `RS/kg: 59,90`) e remove unidades soltas redundantes ao final do título (`Pate de Frango Kg` -> `Pate de Frango`), preservando pesos reais como `500ml`, `1kg` e `300g`.
-   - Aplica filtro de dominância por altura visual (`>= 60%` do preço principal) para evitar falsos múltiplos preços em etiquetas de preço único.
-   - Reconhece preços com sufixo colado (`R$1,39UNID`, `R$1,39KG`), dígitos grandes fragmentados (com proximidade estrita `< 0.5x` altura e proteção contra artefatos à esquerda em displays LCD) e volumes condensados (`6000ml` -> `600ml`). A leitura de códigos de barras depende 100% do leitor óptico nativo da câmera (`lockedBarcode`), sem adivinhação por texto OCR.
-5. **Enriquecimento Híbrido Open Food Facts v2 Exclusivo por EAN-13/EAN-8 + Cache LRU (`productLookupService.js`):**
-   - **Fluxo 1 (EAN-13 ou EAN-8 comercial validado por GS1 Módulo-10):** Aceita exclusivamente códigos de 8 ou 13 dígitos lidos pela câmera nativa que não começam com `2` e passam na fórmula oficial do dígito verificador GS1 Módulo-10 (`isValidGtinBarcode`), rejeitando fragmentos truncados de 12 dígitos antes de qualquer requisição `HTTP 404`. Consulta `world.openfoodfacts.org/api/v2/product/{ean}.json` solicitando apenas campos de texto essenciais (~1 KB por consulta, sem baixar imagens externas), normalizando títulos malformados (ex.: `Stella Arois600` -> `Stella Artois 600ml`, `3l` -> `3L`) e mapeando categorias com precisão via `categories_tags` e marcas brasileiras.
+4. **OCR Geométrico, Cartazes Promocionais e Etiquetas de Balança (`labelParser.js`):**
+   - **Margem Superior Extra (`+12%`) e Normalização (`1000–1200px`):** Preserva títulos no topo da etiqueta e nitidez de centavos sobrescritos antes do OCR.
+   - **Junção 2D de Centavos Sobrescritos:** Reúne reais em tipografia grande (`height >= 1.35x` mediana) com centavos sobrescritos à direita (`"9"` + `",49"` -> `9,49`; `"12"` + `",98"` -> `12,98`).
+   - **Regras Promocionais e de Balança:** Exclui valores riscados ou secundários (`DE:`, `VALOR 100GR`, `VALOR KG`, `P/ NÃO COOPERADO`, `RS/kg`, `IBPT`, `TARA`, `PESO`), prioriza âncoras principais (`POR:`, `À VISTA`, `TOTAL`), protege contra leitura falsa de `R$` como dígito (`9` + `5,49` -> `5,49`) e descarta títulos ilegíveis retornando `""` limpo.
+5. **Enriquecimento Híbrido Open Food Facts v2 (GS1 Brasil 789/790) + Cache Inteligente (`productLookupService.js`):**
+   - **Fluxo 1 (GS1 Brasil 789/790 ou EAN-8 comercial + Módulo-10):** Aceita exclusivamente `EAN-13` brasileiro (`789`/`790`) ou `EAN-8` comercial lidos pela câmera nativa, com timeout de `6,5s` e 1 retry rápido (`1,5s`) apenas em erros transitórios de rede/5xx (nunca em `404`). Rejeita nomes numéricos/EAN vindos da API (ex.: `"7896045101641"`) preservando categoria/quantidade da API e revalida automaticamente categorias antigas no cache (`Outros`/`Hortifruti`).
    - **Sem EAN comercial ou etiquetas de balança (prefixo `2`):** Não realiza chamadas externas de busca textual, retornando imediatamente o resultado do OCR local (`origem: 'ocr_local'`) com filtro contra textos ilegíveis de moiré/reflexo (deixando o nome vazio para digitação limpa enquanto preserva o preço).
    - **Indicador Visual Discreto de Origem:** A miniatura da etiqueta no modal do produto exibe um ícone circular discreto no canto inferior esquerdo indicando a origem do preenchimento: **Globo** (Open Food Facts online), **Raio** (Cache Local sem rede) ou **Câmera** (Leitura Local por OCR).
    - **Baixo Consumo de Rede e Armazenamento:** Timeout de `6,5s` (`AbortController`), fallback 100% offline automático, cache local LRU ultracompacto limitado a `300` entradas (`< 25 KB`) e limpeza automática de arquivos temporários de OCR.
@@ -150,7 +150,7 @@ Minha lista de compras/
     ├── context/
     │   └── AppSettingsContext.js             # Contexto global de temas, geometria e sincronização de dados
     ├── theme/
-    │   └── themes.js                         # 7 temas com paletas de cores e tokens de geometria adaptativa
+    │   └── themes.js                         # 8 temas com paletas de cores e tokens de geometria adaptativa
     ├── pages/
     │   ├── Listas/
     │   │   ├── ListasScreen.js               # Tela inicial: listas de compras, filtros e seleção em lote

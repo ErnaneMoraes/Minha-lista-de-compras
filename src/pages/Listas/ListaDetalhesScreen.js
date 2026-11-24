@@ -27,6 +27,10 @@ import NativeOcrBridge from '../../../components/common/NativeOcrBridge';
 import { recognizeShelfLabel } from '../../services/labelOcr';
 import { identificarProdutoDaEtiqueta } from '../../services/productLookupService';
 import {
+  recordItemConfirmationLog,
+  recordManualItemAddLog,
+} from '../../services/diagnosticLogService';
+import {
   saveCompressedTagPhoto,
   deleteTagPhotoFile,
   getTagPhotoUri,
@@ -52,6 +56,9 @@ const ShoppingListItemRow = React.memo(function ShoppingListItemRow({
   item,
   isCompleted,
   colors,
+  cardShadow,
+  typography,
+  isGoogleMapsTheme,
   radiusCard,
   borderWidth,
   onEdit,
@@ -81,20 +88,28 @@ const ShoppingListItemRow = React.memo(function ShoppingListItemRow({
         localStyles.itemCard,
         {
           backgroundColor: colors.card,
-          borderColor: colors.borderColor,
+          borderColor: colors.dividerColor || colors.borderColor,
           borderRadius: radiusCard,
           borderWidth,
         },
+        cardShadow,
       ]}
     >
       <TouchableOpacity
         style={localStyles.itemMainArea}
-        activeOpacity={isCompleted ? 1 : 0.75}
+        activeOpacity={isCompleted ? 1 : 0.78}
         disabled={isCompleted}
         onPress={() => onEdit(item)}
       >
         <Text
-          style={[localStyles.itemName, { color: colors.textoEscuro }]}
+          style={[
+            localStyles.itemName,
+            {
+              color: colors.textoEscuro,
+              fontWeight: typography?.headingWeight || 'bold',
+              letterSpacing: typography?.letterSpacing || 0,
+            },
+          ]}
           numberOfLines={2}
         >
           {item.name}
@@ -104,7 +119,10 @@ const ShoppingListItemRow = React.memo(function ShoppingListItemRow({
           <View
             style={[
               localStyles.categoryBadge,
-              { backgroundColor: colors.badgeBg || colors.verdeSuave },
+              {
+                backgroundColor: colors.badgeBg || colors.verdeSuave,
+                borderRadius: isGoogleMapsTheme ? 999 : 6,
+              },
             ]}
           >
             <Text
@@ -116,13 +134,26 @@ const ShoppingListItemRow = React.memo(function ShoppingListItemRow({
               {catName}
             </Text>
           </View>
-          <Text style={[localStyles.itemPriceText, { color: colors.principal }]}>
+          <Text
+            style={[
+              localStyles.itemPriceText,
+              {
+                color: colors.principal,
+                fontVariant: ['tabular-nums'],
+              },
+            ]}
+          >
             {formatCurrency(unitPrice)} / {item.unit || 'un'}
           </Text>
         </View>
 
         {qty > 1 ? (
-          <Text style={[localStyles.subtotalText, { color: colors.textMuted }]}>
+          <Text
+            style={[
+              localStyles.subtotalText,
+              { color: colors.textMuted, fontVariant: ['tabular-nums'] },
+            ]}
+          >
             Subtotal: {formatCurrency(subtotal)}
           </Text>
         ) : null}
@@ -229,6 +260,9 @@ export default function ListaDetalhesScreen({ route, navigation }) {
   const bottomPad = Math.max(7, insets.bottom);
   const {
     colors,
+    cardShadow,
+    typography,
+    isGoogleMapsTheme,
     radiusCard,
     radiusButton,
     radiusInput,
@@ -244,6 +278,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
   const [banner, setBanner] = useState(null);
   const [previewPhotoItem, setPreviewPhotoItem] = useState(null);
   const pendingDraftPhotoRef = useRef(null);
+  const initialScanSnapshotRef = useRef(null);
 
   const [isCameraModalVisible, setIsCameraModalVisible] = useState(false);
   const [cameraInitialPhoto, setCameraInitialPhoto] = useState(null);
@@ -461,12 +496,12 @@ export default function ListaDetalhesScreen({ route, navigation }) {
     let enrichedOrigin = 'ocr_local';
     if (
       !reminderTemplate &&
-      (resolvedBarcode || extracted.name || extracted.rawText)
+      (resolvedBarcode || extracted.name)
     ) {
       setOcrStatusMessage('Identificando produto...');
       try {
         const enriched = await identificarProdutoDaEtiqueta({
-          rawText: extracted.name || extracted.rawText || '',
+          rawText: extracted.name || '',
           barcode: resolvedBarcode,
         });
         if (!ocrCancelledRef.current && enriched) {
@@ -590,6 +625,13 @@ export default function ListaDetalhesScreen({ route, navigation }) {
         ? 'Etiqueta capturada. Confira ou complete nome e preço antes de salvar.'
         : ''
     );
+    initialScanSnapshotRef.current = {
+      name: draftItem.name || '',
+      price: Number(draftItem.price) || 0,
+      category: draftItem.category || 'Outros',
+      unit: draftItem.unit || 'un',
+      sourceOrigin: draftItem.lookupOrigin || 'ocr_local',
+    };
     setEditingItem(draftItem);
     setModalMode('ocr');
     setIsItemModalVisible(true);
@@ -608,6 +650,13 @@ export default function ListaDetalhesScreen({ route, navigation }) {
         ? 'Etiqueta capturada. Confira ou complete nome e preço antes de salvar.'
         : ''
     );
+    initialScanSnapshotRef.current = {
+      name: nextItem.name || '',
+      price: Number(nextItem.price) || 0,
+      category: nextItem.category || 'Outros',
+      unit: nextItem.unit || 'un',
+      sourceOrigin: nextItem.lookupOrigin || 'ocr_local',
+    };
     setEditingItem(nextItem);
     setModalMode('ocr');
     setIsItemModalVisible(true);
@@ -669,6 +718,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
   const handleOpenManualAdd = () => {
     if (list?.completed) return;
     pendingReminderForCameraRef.current = null;
+    initialScanSnapshotRef.current = null;
     setEditingItem(null);
     setOcrHint('');
     setModalMode('manual');
@@ -680,6 +730,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
   const handleOpenEditItem = useCallback(
     (item) => {
       if (isCompletedFlag) return;
+      initialScanSnapshotRef.current = null;
       setEditingItem(item);
       setOcrHint('');
       setModalMode('edit');
@@ -703,7 +754,58 @@ export default function ListaDetalhesScreen({ route, navigation }) {
         photoCapturedAt:
           itemData.photoCapturedAt || editingItem?.photoCapturedAt || null,
       });
+
+      // Telemetria anônima (LGPD): compara campos preenchidos automaticamente vs. editados manualmente
+      if (modalMode === 'ocr' && initialScanSnapshotRef.current) {
+        const snap = initialScanSnapshotRef.current;
+        const savedName = String(itemData.name || '').trim();
+        const savedPrice = Number(itemData.price) || 0;
+        const savedCategory = normalizeCategoryName(itemData.category);
+        const savedUnit = itemData.unit || 'un';
+
+        const nameStatus = !snap.name
+          ? 'Inserido manualmente (OCR vazio)'
+          : savedName === snap.name.trim()
+            ? snap.sourceOrigin === 'api' || snap.sourceOrigin === 'cache'
+              ? 'Automático (API/Cache)'
+              : 'Automático (OCR)'
+            : 'Editado manualmente';
+
+        const priceStatus =
+          snap.price <= 0
+            ? 'Inserido manualmente (OCR não detectou)'
+            : Math.abs(savedPrice - snap.price) < 0.005
+              ? 'Automático (OCR)'
+              : `Editado manualmente (OCR: ${formatCurrency(
+                  snap.price
+                )} -> Salvo: ${formatCurrency(savedPrice)})`;
+
+        const categoryStatus =
+          savedCategory === normalizeCategoryName(snap.category)
+            ? 'Automático'
+            : 'Alterado manualmente';
+
+        const unitStatus =
+          savedUnit === (snap.unit || 'un')
+            ? 'Automático'
+            : 'Alterado manualmente';
+
+        recordItemConfirmationLog({
+          nameStatus,
+          priceStatus,
+          categoryStatus,
+          unitStatus,
+          sourceOrigin: snap.sourceOrigin || 'ocr_local',
+        }).catch(() => {});
+      } else if (modalMode === 'manual') {
+        recordManualItemAddLog({
+          hasPrice: (Number(itemData.price) || 0) > 0,
+          category: normalizeCategoryName(itemData.category),
+          unit: itemData.unit || 'un',
+        }).catch(() => {});
+      }
     }
+    initialScanSnapshotRef.current = null;
     pendingDraftPhotoRef.current = null;
     if (updated) {
       setList(updated);
@@ -818,6 +920,9 @@ export default function ListaDetalhesScreen({ route, navigation }) {
         item={item}
         isCompleted={isCompletedFlag}
         colors={colors}
+        cardShadow={cardShadow}
+        typography={typography}
+        isGoogleMapsTheme={isGoogleMapsTheme}
         radiusCard={radiusCard}
         borderWidth={borderWidth}
         onEdit={handleOpenEditItem}
@@ -830,6 +935,9 @@ export default function ListaDetalhesScreen({ route, navigation }) {
     [
       isCompletedFlag,
       colors,
+      cardShadow,
+      typography,
+      isGoogleMapsTheme,
       radiusCard,
       borderWidth,
       handleOpenEditItem,

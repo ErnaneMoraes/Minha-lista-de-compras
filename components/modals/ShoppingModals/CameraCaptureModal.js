@@ -26,7 +26,8 @@ function isValidGs1BarcodeChecksum(digits) {
   const n = digits.length;
   if (n !== 8 && n !== 13) return false;
   if (digits.startsWith('2')) return false;
-  if (n === 13 && (digits.startsWith('98') || digits.startsWith('99'))) {
+  // EAN-13 brasileiro exige prefixo oficial GS1 Brasil (789 ou 790)
+  if (n === 13 && !digits.startsWith('789') && !digits.startsWith('790')) {
     return false;
   }
   if (/^(\d)\1+$/.test(digits)) return false;
@@ -901,12 +902,12 @@ export default function CameraCaptureModal({
     try {
       const { scale, offsetX, offsetY, naturalWidth, naturalHeight } = meta;
 
-      const originX = clamp(
+      const rawOriginX = clamp(
         Math.round((box.x - offsetX) / scale),
         0,
         Math.max(0, naturalWidth - 1)
       );
-      const originY = clamp(
+      const rawOriginY = clamp(
         Math.round((box.y - offsetY) / scale),
         0,
         Math.max(0, naturalHeight - 1)
@@ -914,17 +915,30 @@ export default function CameraCaptureModal({
       const width = clamp(
         Math.round(box.width / scale),
         1,
-        Math.max(1, naturalWidth - originX)
+        Math.max(1, naturalWidth - rawOriginX)
       );
-      const height = clamp(
+      const rawHeight = clamp(
         Math.round(box.height / scale),
+        1,
+        Math.max(1, naturalHeight - rawOriginY)
+      );
+
+      // Expande +12% na margem superior (limitada à imagem) para nunca cortar títulos no topo da etiqueta
+      const extraTop = Math.round(rawHeight * 0.12);
+      const originX = rawOriginX;
+      const originY = Math.max(0, rawOriginY - extraTop);
+      const height = clamp(
+        rawHeight + (rawOriginY - originY),
         1,
         Math.max(1, naturalHeight - originY)
       );
 
       const actions = [{ crop: { originX, originY, width, height } }];
-      if (width > 1280) {
-        actions.push({ resize: { width: 1280 } });
+      // Normaliza largura entre 1000px e 1200px para preservar nitidez de centavos sobrescritos e fontes pequenas
+      if (width > 1200) {
+        actions.push({ resize: { width: 1200 } });
+      } else if (width < 1000) {
+        actions.push({ resize: { width: 1100 } });
       }
 
       const manipulated = await ImageManipulator.manipulateAsync(
