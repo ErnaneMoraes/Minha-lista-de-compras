@@ -39,7 +39,7 @@ O **Minha Lista de Compras** resolve isso ao oferecer:
 
 ### 2. Gerenciamento de Produtos na Lista
 - **Barra de ação tripla no rodapé:** `[Lembretes]` | `[+ Adicionar Produto]` | `[Câmera]`.
-- **Adição Manual e Ditado por Voz no Nome:** Formulário completo com máscara monetária BRL (`R$ 0,00`), unidade de medida (`un`, `kg`, `pct`, `g`, `L`, `ml`, `cx`, `dz`), categoria, observação e botão de **microfone exclusivo no campo Nome do produto** (`pt-BR`, com transcrição em tempo real, capitalização automática e sugestão de categoria).
+- **Adição Manual e Ditado por Voz no Nome:** Formulário completo com máscara monetária BRL (`R$ 0,00`), unidade de medida (`un`, `kg`, `pct`, `g`, `L`, `ml`, `cx`, `dz`), categoria, observação e ícone de **microfone minimalista translúcido integrado dentro do campo Nome do produto** (`pt-BR`, com transcrição em tempo real, capitalização automática, sugestão de categoria e fallback seguro no Expo Go).
 - **Categorização Automática Inteligente:** Dicionário local com mais de 420 palavras-chave (incluindo *Mercearia*, *Hortifruti*, *Frios e Laticínios*, *Açougue*, *Padaria*, *Bebidas*, *Limpeza*, *Higiene Pessoal*, *Farmácia*, *Medicamentos* e *Outros*) e **aprendizado local** que memoriza as categorias escolhidas pelo usuário.
 - **Controle rápido de quantidade:** Botões `-` e `+` diretamente no card de cada produto, além de busca em tempo real e edição ao tocar no card.
 - **Rodapé Fixo Totalizador:** Exibe permanentemente o valor total da compra, contagem de produtos/itens e status do orçamento.
@@ -78,7 +78,7 @@ O **Minha Lista de Compras** resolve isso ao oferecer:
   - **Material You** (minimalista, cartográfico claro `#F1F3F4`, azul `#1A73E8`, botões/filtros em pílula, cartões brancos com superfícies flutuantes e preços tabulares)
   - **Neon Matrix** e **Cyberpunk Neon** (paletas neon de alto contraste com geometria reta/tech)
 - **Onboarding Compacto e Revisitável:** Tela inicial de boas-vindas com cabeçalho enxuto, 4 guias práticos diretos ao ponto e configuração de fotos/retenção (persistida em `@mlc_offline:onboarding_completed`), podendo ser revista a qualquer momento pelo botão **"Rever Tela de Boas-Vindas (Onboarding)"** em **Configurações > Ajuda**.
-- **Telas de Ajuda e Sobre (com Histórico de Atualizações):** Acessíveis em **Configurações**, oferecendo guia passo a passo (`Ajuda`) e informações de versão semântica (`v1.0.6`), **Histórico de Atualizações** centralizado (`src/constants/appVersion.js`), privacidade 100% offline e link do repositório oficial (`Sobre`).
+- **Telas de Ajuda e Sobre (com Histórico de Atualizações):** Acessíveis em **Configurações**, oferecendo guia passo a passo (`Ajuda`) e informações de versão semântica (`v1.0.7`), **Histórico de Atualizações** centralizado (`src/constants/appVersion.js`), privacidade 100% offline e link do repositório oficial (`Sobre`).
 - **Resiliência, Privacidade (LGPD) e Telemetria Local:** Proteção global com `<ErrorBoundary>`, logs técnicos locais anônimos em conformidade com a LGPD (com versão/build, registro de falhas e telemetria comparando preenchimento automático vs. editado manualmente, sem coleta de dados pessoais), otimização com `React.memo` e confirmações seguras via `ConfirmModal`.
 
 ---
@@ -241,7 +241,7 @@ npm run build:apk
 Ao final do processo, o arquivo estará pronto em:
 
 ```text
-builds/minha-lista-compras-v1.0.6.apk
+builds/minha-lista-compras-v1.0.7.apk
 ```
 
 > **Dica:** A pasta `builds/` e arquivos `*.apk` estão listados no `.gitignore` para evitar o versionamento acidental de binários no repositório.

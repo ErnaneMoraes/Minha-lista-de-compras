@@ -501,13 +501,15 @@ export default function ItemFormModal({
               >
                 Nome do produto *
               </Text>
-              <View style={localStyles.nameInputRow}>
+              <View style={localStyles.nameInputWrap}>
                 <TextInput
                   style={[
                     globalStyles.input,
                     inputThemeStyle,
-                    localStyles.nameInputFlex,
-                    isListeningVoice && { borderColor: colors.logoutRed },
+                    localStyles.nameInputFull,
+                    isListeningVoice && {
+                      borderColor: colors.danger || colors.logoutRed,
+                    },
                   ]}
                   placeholder="Ex: Dipirona, Leite, Sabonete, Arroz..."
                   placeholderTextColor={colors.textMuted}
@@ -518,27 +520,21 @@ export default function ItemFormModal({
                   }}
                 />
                 <Animated.View
-                  style={{
-                    transform: [{ scale: pulseAnim }],
-                    marginLeft: 8,
-                  }}
+                  style={[
+                    localStyles.inlineMicOverlay,
+                    { transform: [{ scale: pulseAnim }] },
+                  ]}
                 >
                   <TouchableOpacity
-                    activeOpacity={0.82}
+                    activeOpacity={0.7}
+                    hitSlop={8}
                     onPress={handleToggleVoiceName}
                     style={[
                       localStyles.voiceMicBtn,
                       {
                         backgroundColor: isListeningVoice
-                          ? colors.logoutRed
-                          : colors.verdeSuave,
-                        borderColor: isListeningVoice
-                          ? colors.logoutRed
-                          : colors.principal,
-                        borderRadius: isMaterialYouTheme
-                          ? 999
-                          : Math.min(14, radiusButton),
-                        borderWidth,
+                          ? `${colors.danger || colors.logoutRed}20`
+                          : 'rgba(128, 128, 128, 0.10)',
                       },
                     ]}
                     accessibilityRole="button"
@@ -550,8 +546,13 @@ export default function ItemFormModal({
                   >
                     <FontAwesome6
                       name={isListeningVoice ? 'stop' : 'microphone'}
-                      size={16}
-                      color={isListeningVoice ? '#FFFFFF' : colors.principal}
+                      size={isListeningVoice ? 12 : 15}
+                      color={
+                        isListeningVoice
+                          ? colors.danger || colors.logoutRed
+                          : colors.textSecondary || colors.textMuted
+                      }
+                      style={{ opacity: isListeningVoice ? 0.95 : 0.55 }}
                     />
                   </TouchableOpacity>
                 </Animated.View>
@@ -561,16 +562,16 @@ export default function ItemFormModal({
                   <View
                     style={[
                       localStyles.voiceRecordingDot,
-                      { backgroundColor: colors.logoutRed },
+                      { backgroundColor: colors.danger || colors.logoutRed },
                     ]}
                   />
                   <Text
                     style={[
                       localStyles.voiceStatusText,
-                      { color: colors.logoutRed },
+                      { color: colors.danger || colors.logoutRed },
                     ]}
                   >
-                    Ouvindo... fale o nome do produto
+                    Ouvindo...
                   </Text>
                 </View>
               ) : voiceFeedback ? (
@@ -882,34 +883,44 @@ const localStyles = StyleSheet.create({
     alignItems: 'flex-end',
     width: '100%',
   },
-  nameInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  nameInputWrap: {
+    position: 'relative',
     width: '100%',
+    justifyContent: 'center',
   },
-  nameInputFlex: {
-    flex: 1,
+  nameInputFull: {
+    width: '100%',
+    paddingRight: 40,
     marginBottom: 0,
   },
+  inlineMicOverlay: {
+    position: 'absolute',
+    right: 10,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   voiceMicBtn: {
-    width: 48,
-    height: 48,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
   },
   voiceStatusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 6,
+    marginTop: 5,
   },
   voiceRecordingDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
     marginRight: 6,
   },
   voiceStatusText: {
-    fontSize: 12.5,
+    fontSize: 12,
     fontWeight: '600',
   },
   voiceFeedbackText: {

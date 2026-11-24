@@ -1,14 +1,51 @@
-import { Platform } from 'react-native';
+import { NativeModules, Platform } from 'react-native';
 
 let cachedModule = undefined;
 let activeCleanup = null;
+let isDictationActive = false;
+
+function hasNativeSpeechBinding() {
+  if (Platform.OS === 'web') {
+    return (
+      typeof window !== 'undefined' &&
+      Boolean(window.SpeechRecognition || window.webkitSpeechRecognition)
+    );
+  }
+  try {
+    if (globalThis?.expo?.modules?.ExpoSpeechRecognition) {
+      return true;
+    }
+    if (NativeModules?.ExpoSpeechRecognition) {
+      return true;
+    }
+    // Check Expo's NativeModulesProxy if available without throwing
+    // eslint-disable-next-line global-require
+    const expoModulesCore = require('expo-modules-core');
+    if (expoModulesCore?.NativeModulesProxy?.ExpoSpeechRecognition) {
+      return true;
+    }
+    if (
+      typeof expoModulesCore?.requireOptionalNativeModule === 'function' &&
+      expoModulesCore.requireOptionalNativeModule('ExpoSpeechRecognition')
+    ) {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
 
 function getSpeechModule() {
   if (cachedModule !== undefined) {
     return cachedModule;
   }
   try {
-    // Lazy require avoids crashing in Expo Go where the native module is absent
+    if (!hasNativeSpeechBinding()) {
+      cachedModule = null;
+      return null;
+    }
+    // Lazy require only after verifying native binding exists (prevents Expo Go crash)
     // eslint-disable-next-line global-require
     const pkg = require('expo-speech-recognition');
     const mod = pkg?.ExpoSpeechRecognitionModule || null;
@@ -82,29 +119,33 @@ function clearActiveListeners() {
 }
 
 export function stopVoiceNameDictation() {
+  if (!isDictationActive) return;
   const mod = getSpeechModule();
-  if (mod) {
-    try {
-      mod.stop();
-    } catch {
-      // ignore stop errors
-    }
+  if (!mod) {
+    isDictationActive = false;
+    return;
+  }
+  try {
+    mod.stop();
+  } catch {
+    // ignore stop errors
   }
 }
 
 export function abortVoiceNameDictation() {
+  if (!isDictationActive && !activeCleanup) return;
+  isDictationActive = false;
   clearActiveListeners();
   const mod = getSpeechModule();
-  if (mod) {
-    try {
-      if (typeof mod.abort === 'function') {
-        mod.abort();
-      } else {
-        mod.stop();
-      }
-    } catch {
-      // ignore abort errors
+  if (!mod) return;
+  try {
+    if (typeof mod.abort === 'function') {
+      mod.abort();
+    } else {
+      mod.stop();
     }
+  } catch {
+    // ignore abort errors
   }
 }
 
@@ -122,7 +163,7 @@ export async function startVoiceNameDictation({
       message:
         Platform.OS === 'web'
           ? 'O ditado por voz não é suportado neste navegador. Digite o nome do produto normalmente.'
-          : 'O ditado por voz requer uma build instalada do aplicativo (APK/Development Build). No Expo Go, digite o nome normalmente.',
+          : 'Ditado por voz indisponível no Expo Go. Este recurso funciona no APK instalado do aplicativo.',
     });
     return { started: false };
   }
@@ -169,6 +210,7 @@ export async function startVoiceNameDictation({
 
   const subs = [];
   const finish = () => {
+    isDictationActive = false;
     clearActiveListeners();
     onEnd?.();
   };
@@ -176,6 +218,7 @@ export async function startVoiceNameDictation({
   try {
     subs.push(
       mod.addListener('start', () => {
+        isDictationActive = true;
         onStart?.();
       })
     );
@@ -201,6 +244,7 @@ export async function startVoiceNameDictation({
           finish();
           return;
         }
+        isDictationActive = false;
         clearActiveListeners();
         onError?.({
           code,
@@ -230,6 +274,7 @@ export async function startVoiceNameDictation({
       });
     };
 
+    isDictationActive = true;
     mod.start({
       lang: 'pt-BR',
       interimResults: true,
@@ -238,11 +283,12 @@ export async function startVoiceNameDictation({
 
     return { started: true };
   } catch {
+    isDictationActive = false;
     clearActiveListeners();
     onError?.({
       code: 'unavailable',
       message:
-        'Não foi possível iniciar o reconhecimento de voz. Verifique se o recurso está disponível neste aparelho.',
+        'Ditado por voz indisponível no Expo Go. Este recurso funciona no APK instalado do aplicativo.',
     });
     return { started: false };
   }

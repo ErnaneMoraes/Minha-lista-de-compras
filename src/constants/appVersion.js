@@ -1,11 +1,20 @@
-export const APP_VERSION = '1.0.6';
-export const APP_BUILD_TAG = '2026.11.23-voice-name';
+export const APP_VERSION = '1.0.7';
+export const APP_BUILD_TAG = '2026.11.24-voice-minimal';
 
 /**
  * Histórico de atualizações (mais recente no topo).
- * Para futuras versões (1.0.7, 1.1.0, etc.), basta adicionar uma nova entrada no início do array.
+ * Para futuras versões (1.0.8, 1.1.0, etc.), basta adicionar uma nova entrada no início do array.
  */
 export const APP_CHANGELOG = [
+  {
+    version: '1.0.7',
+    date: '24/11/2026',
+    title: 'Microfone Minimalista Interno e Proteção para Expo Go',
+    highlights: [
+      'Botão de microfone redesenhado como ícone minimalista translúcido integrado na borda direita interna do campo "Nome do produto", mantendo largura total para digitação.',
+      'Blindagem do módulo nativo de reconhecimento de voz em voiceInputService.js para evitar erros no Expo Go e exibir aviso amigável em PT-BR.',
+    ],
+  },
   {
     version: '1.0.6',
     date: '23/11/2026',
