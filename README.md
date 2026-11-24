@@ -13,7 +13,7 @@ O aplicativo elimina a surpresa do valor total no caixa e dispensa cadastro, log
 - [Tecnologias Utilizadas](#-tecnologias-utilizadas)
 - [Estrutura do Projeto](#-estrutura-do-projeto)
 - [Como Executar o Projeto](#-como-executar-o-projeto)
-- [Geração de Build / APK](#-geração-de-build--apk)
+- [Geração de APK Android (Build & Download Automatizado)](#-geração-de-apk-android-build--download-automatizado)
 
 ---
 
@@ -78,7 +78,7 @@ O **Minha Lista de Compras** resolve isso ao oferecer:
   - **Material You** (minimalista, cartográfico claro `#F1F3F4`, azul `#1A73E8`, botões/filtros em pílula, cartões brancos com superfícies flutuantes e preços tabulares)
   - **Neon Matrix** e **Cyberpunk Neon** (paletas neon de alto contraste com geometria reta/tech)
 - **Onboarding Compacto e Revisitável:** Tela inicial de boas-vindas com cabeçalho enxuto, 4 guias práticos diretos ao ponto e configuração de fotos/retenção (persistida em `@mlc_offline:onboarding_completed`), podendo ser revista a qualquer momento pelo botão **"Rever Tela de Boas-Vindas (Onboarding)"** em **Configurações > Ajuda**.
-- **Telas de Ajuda e Sobre (com Histórico de Atualizações):** Acessíveis em **Configurações**, oferecendo guia passo a passo (`Ajuda`) e informações de versão semântica (`v1.0.4`), **Histórico de Atualizações** centralizado (`src/constants/appVersion.js`), privacidade 100% offline e link do repositório oficial (`Sobre`).
+- **Telas de Ajuda e Sobre (com Histórico de Atualizações):** Acessíveis em **Configurações**, oferecendo guia passo a passo (`Ajuda`) e informações de versão semântica (`v1.0.5`), **Histórico de Atualizações** centralizado (`src/constants/appVersion.js`), privacidade 100% offline e link do repositório oficial (`Sobre`).
 - **Resiliência, Privacidade (LGPD) e Telemetria Local:** Proteção global com `<ErrorBoundary>`, logs técnicos locais anônimos em conformidade com a LGPD (com versão/build, registro de falhas e telemetria comparando preenchimento automático vs. editado manualmente, sem coleta de dados pessoais), otimização com `React.memo` e confirmações seguras via `ConfirmModal`.
 
 ---
@@ -226,20 +226,25 @@ npx expo start --ios
 
 ---
 
-## 📦 Geração de Build / APK
+## 📦 Geração de APK Android (Build & Download Automatizado)
 
-Para gerar um arquivo APK de testes ou build de produção via EAS:
+O projeto inclui um script multiplataforma (`scripts/build-apk.js`) que lê automaticamente a versão atual em `app.json`, executa o build `preview` no EAS aguardando a conclusão e baixa o APK já renomeado na pasta local `builds/` (ignorada pelo Git):
 
 ```bash
-# 1. Instalar o EAS CLI globalmente
-npm install -g eas-cli
+# 1. Faça login na sua conta Expo (apenas na primeira vez)
+npx eas-cli login
 
-# 2. Fazer login na sua conta Expo
-eas login
-
-# 3. Gerar APK de preview para Android
-eas build -p android --profile preview
+# 2. Gere e baixe automaticamente o APK versionado
+npm run build:apk
 ```
+
+Ao final do processo, o arquivo estará pronto em:
+
+```text
+builds/minha-lista-compras-v1.0.5.apk
+```
+
+> **Dica:** A pasta `builds/` e arquivos `*.apk` estão listados no `.gitignore` para evitar o versionamento acidental de binários no repositório.
 
 ---
 

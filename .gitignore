@@ -41,3 +41,7 @@ yarn-error.*
 
 # Local AI development blueprints & agent guides
 docs/
+
+# Local Android APK builds
+builds/
+*.apk

@@ -1,11 +1,20 @@
-export const APP_VERSION = '1.0.4';
-export const APP_BUILD_TAG = '2026.11.23-material-you';
+export const APP_VERSION = '1.0.5';
+export const APP_BUILD_TAG = '2026.11.23-apk-script';
 
 /**
  * Histórico de atualizações (mais recente no topo).
- * Para futuras versões (1.0.5, 1.1.0, etc.), basta adicionar uma nova entrada no início do array.
+ * Para futuras versões (1.0.6, 1.1.0, etc.), basta adicionar uma nova entrada no início do array.
  */
 export const APP_CHANGELOG = [
+  {
+    version: '1.0.5',
+    date: '23/11/2026',
+    title: 'Automação de Build e Download Versionado do APK',
+    highlights: [
+      'Adicionado o script multiplataforma "npm run build:apk" (scripts/build-apk.js) para gerar o APK preview no EAS e salvá-lo automaticamente com o número da versão em builds/.',
+      'Atualização do .gitignore (ignorando builds/ e *.apk) e da documentação técnica do projeto.',
+    ],
+  },
   {
     version: '1.0.4',
     date: '23/11/2026',
