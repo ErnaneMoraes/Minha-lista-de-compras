@@ -1,11 +1,23 @@
-export const APP_VERSION = '1.0.7';
-export const APP_BUILD_TAG = '2026.11.24-voice-minimal';
+export const APP_VERSION = '1.0.8';
+export const APP_BUILD_TAG = '2026.11.24-simplified-onboarding';
 
 /**
  * Histórico de atualizações (mais recente no topo).
- * Para futuras versões (1.0.8, 1.1.0, etc.), basta adicionar uma nova entrada no início do array.
+ * Para futuras versões (1.0.9, 1.1.0, etc.), basta adicionar uma nova entrada no início do array.
  */
 export const APP_CHANGELOG = [
+  {
+    version: '1.0.8',
+    date: '24/11/2026',
+    title: 'Modo Simplificado Padrão, Onboarding Unificado, Correção OCR e Fallback de API',
+    highlights: [
+      'Modo Simplificado definido como padrão no cadastro de itens (exibindo Nome com microfone interno, Quantidade e Preço), com pílula de alternância rápida no topo do formulário e opção dedicada em Configurações > Cadastro de Itens.',
+      'Preferências de Câmera e Fotos das Etiquetas unificadas entre Onboarding e Configurações (salvamento das fotos, som da câmera e exclusão automática por período sincronizados em tempo real).',
+      'Corrigido filtro de preço equivalente por quilo/litro ("PRECO EQUIVALE A 119.600P/kg") e números de 3 casas decimais para nunca sobrescrever o preço principal da etiqueta.',
+      'Adicionado fallback automático gratuito para Open Products Facts quando o Open Food Facts retorna HTTP 404 (itens não-alimentícios como filtros de papel, limpeza e higiene).',
+      'Reforçada a rejeição de nomes corrompidos por reflexo em acrílico no OCR, entregando o campo limpo para digitação ou ditado rápido.',
+    ],
+  },
   {
     version: '1.0.7',
     date: '24/11/2026',

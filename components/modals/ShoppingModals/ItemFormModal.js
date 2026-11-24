@@ -56,7 +56,11 @@ export default function ItemFormModal({
     radiusInput,
     borderWidth,
     isMaterialYouTheme,
+    simplifiedItemForm,
   } = useAppSettings();
+  const [isSimplifiedSession, setIsSimplifiedSession] = useState(
+    Boolean(simplifiedItemForm)
+  );
   const [name, setName] = useState('');
   const [quantity, setQuantity] = useState('1');
   const [unit, setUnit] = useState('un');
@@ -123,6 +127,7 @@ export default function ItemFormModal({
 
   useEffect(() => {
     if (visible) {
+      setIsSimplifiedSession(Boolean(simplifiedItemForm));
       if (initialItem) {
         const basePrice =
           Number(initialItem.price) > 0
@@ -172,7 +177,7 @@ export default function ItemFormModal({
       setIsListeningVoice(false);
       setVoiceFeedback('');
     }
-  }, [visible, initialItem]);
+  }, [visible, initialItem, simplifiedItemForm]);
 
   const handleToggleVoiceName = async () => {
     if (isListeningVoice) {
@@ -352,9 +357,63 @@ export default function ItemFormModal({
             },
           ]}
         >
-          <Text style={[ModalStyle.modalTitle, { color: colors.textoEscuro }]}>
-            {modalTitle}
-          </Text>
+          <View style={localStyles.headerTitleRow}>
+            <Text
+              style={[
+                ModalStyle.modalTitle,
+                localStyles.headerTitleText,
+                { color: colors.textoEscuro },
+              ]}
+              numberOfLines={1}
+            >
+              {modalTitle}
+            </Text>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => setIsSimplifiedSession((prev) => !prev)}
+              style={[
+                localStyles.simplifiedPill,
+                {
+                  backgroundColor: isSimplifiedSession
+                    ? colors.verdeSuave
+                    : colors.surfaceMuted,
+                  borderColor: isSimplifiedSession
+                    ? colors.principal
+                    : colors.borderColor,
+                },
+              ]}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: Boolean(isSimplifiedSession) }}
+              accessibilityLabel={
+                isSimplifiedSession
+                  ? 'Alternar para modo completo'
+                  : 'Alternar para modo simplificado'
+              }
+            >
+              <FontAwesome6
+                name={isSimplifiedSession ? 'check' : 'sliders'}
+                size={11}
+                color={
+                  isSimplifiedSession
+                    ? colors.badgeText || colors.principal
+                    : colors.textMuted
+                }
+                style={{ marginRight: 5 }}
+              />
+              <Text
+                style={[
+                  localStyles.simplifiedPillText,
+                  {
+                    color: isSimplifiedSession
+                      ? colors.badgeText || colors.principal
+                      : colors.textMuted,
+                  },
+                ]}
+              >
+                Simplificado
+              </Text>
+            </TouchableOpacity>
+          </View>
 
           {savedPhotoUri && !photoLoadError ? (
             <TouchableOpacity
@@ -748,104 +807,108 @@ export default function ItemFormModal({
               </View>
             )}
 
-            <View style={ModalStyle.modalInputContainer}>
-              <Text style={[ModalStyle.modalLabel, { color: colors.textoEscuro }]}>
-                Unidade
-              </Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={localStyles.chipRow}
-              >
-                {UNITS.map((u) => {
-                  const active = unit === u;
-                  return (
-                    <TouchableOpacity
-                      key={u}
-                      onPress={() => setUnit(u)}
-                      style={[
-                        localStyles.chip,
-                        {
-                          backgroundColor: active
-                            ? colors.principal
-                            : colors.surfaceMuted,
-                          borderColor: active
-                            ? colors.principal
-                            : colors.borderColor,
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          localStyles.chipText,
-                          {
-                            color: active
-                              ? colors.textoPrincipal
-                              : colors.textoEscuro,
-                          },
-                        ]}
-                      >
-                        {u}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            </View>
+            {!isSimplifiedSession ? (
+              <>
+                <View style={ModalStyle.modalInputContainer}>
+                  <Text style={[ModalStyle.modalLabel, { color: colors.textoEscuro }]}>
+                    Unidade
+                  </Text>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={localStyles.chipRow}
+                  >
+                    {UNITS.map((u) => {
+                      const active = unit === u;
+                      return (
+                        <TouchableOpacity
+                          key={u}
+                          onPress={() => setUnit(u)}
+                          style={[
+                            localStyles.chip,
+                            {
+                              backgroundColor: active
+                                ? colors.principal
+                                : colors.surfaceMuted,
+                              borderColor: active
+                                ? colors.principal
+                                : colors.borderColor,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              localStyles.chipText,
+                              {
+                                color: active
+                                  ? colors.textoPrincipal
+                                  : colors.textoEscuro,
+                              },
+                            ]}
+                          >
+                            {u}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
 
-            <View style={ModalStyle.modalInputContainer}>
-              <Text style={[ModalStyle.modalLabel, { color: colors.textoEscuro }]}>
-                Categoria
-              </Text>
-              <View style={localStyles.chipWrap}>
-                {CATEGORIES.map((cat) => {
-                  const active = category === cat;
-                  return (
-                    <TouchableOpacity
-                      key={cat}
-                      onPress={() => handleSelectCategory(cat)}
-                      style={[
-                        localStyles.chip,
-                        {
-                          backgroundColor: active
-                            ? colors.principal
-                            : colors.surfaceMuted,
-                          borderColor: active
-                            ? colors.principal
-                            : colors.borderColor,
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          localStyles.chipText,
-                          {
-                            color: active
-                              ? colors.textoPrincipal
-                              : colors.textoEscuro,
-                          },
-                        ]}
-                      >
-                        {cat}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
+                <View style={ModalStyle.modalInputContainer}>
+                  <Text style={[ModalStyle.modalLabel, { color: colors.textoEscuro }]}>
+                    Categoria
+                  </Text>
+                  <View style={localStyles.chipWrap}>
+                    {CATEGORIES.map((cat) => {
+                      const active = category === cat;
+                      return (
+                        <TouchableOpacity
+                          key={cat}
+                          onPress={() => handleSelectCategory(cat)}
+                          style={[
+                            localStyles.chip,
+                            {
+                              backgroundColor: active
+                                ? colors.principal
+                                : colors.surfaceMuted,
+                              borderColor: active
+                                ? colors.principal
+                                : colors.borderColor,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              localStyles.chipText,
+                              {
+                                color: active
+                                  ? colors.textoPrincipal
+                                  : colors.textoEscuro,
+                              },
+                            ]}
+                          >
+                            {cat}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
 
-            <View style={ModalStyle.modalInputContainer}>
-              <Text style={[ModalStyle.modalLabel, { color: colors.textoEscuro }]}>
-                Descrição
-              </Text>
-              <TextInput
-                style={[globalStyles.input, inputThemeStyle]}
-                placeholder="Ex: Marca, tamanho, sabor... (Opcional)"
-                placeholderTextColor={colors.textMuted}
-                value={description}
-                onChangeText={setDescription}
-              />
-            </View>
+                <View style={ModalStyle.modalInputContainer}>
+                  <Text style={[ModalStyle.modalLabel, { color: colors.textoEscuro }]}>
+                    Descrição
+                  </Text>
+                  <TextInput
+                    style={[globalStyles.input, inputThemeStyle]}
+                    placeholder="Ex: Marca, tamanho, sabor... (Opcional)"
+                    placeholderTextColor={colors.textMuted}
+                    value={description}
+                    onChangeText={setDescription}
+                  />
+                </View>
+              </>
+            ) : null}
 
             {error ? (
               <Text style={[localStyles.errorText, { color: colors.logoutRed }]}>
@@ -878,6 +941,31 @@ export default function ItemFormModal({
 }
 
 const localStyles = StyleSheet.create({
+  headerTitleRow: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+    gap: 8,
+  },
+  headerTitleText: {
+    flex: 1,
+    marginBottom: 0,
+    textAlign: 'left',
+  },
+  simplifiedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  simplifiedPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'flex-end',

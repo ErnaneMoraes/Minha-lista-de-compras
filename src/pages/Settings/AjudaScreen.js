@@ -41,8 +41,8 @@ const HELP_SECTIONS = [
     title: '2. Modos de Preenchimento de Produtos',
     steps: [
       {
-        label: 'Adicionar manualmente ou ditar o nome por voz:',
-        text: 'Toque no botão central "+ Adicionar Produto", digite o nome e o preço — ou toque no ícone de microfone ao lado de "Nome do produto" para ditar o nome em português (disponível no APK instalado). O app formata o texto, sugere automaticamente a categoria (ex.: Hortifruti, Mercearia, Farmácia) e aprende se você escolher outra categoria.',
+        label: 'Adicionar manualmente, ditar por voz ou usar Modo Simplificado:',
+        text: 'Toque em "+ Adicionar Produto" para preencher os dados ou toque no ícone discreto de microfone dentro do campo "Nome do produto" para ditar em português (no APK instalado). O Modo Simplificado vem ativo por padrão (exibindo Nome, Quantidade e Preço, com categoria inferida automaticamente), podendo ser alternado pela pílula "Simplificado" no topo do formulário ou definido como padrão em Configurações > Cadastro de Itens.',
       },
       {
         label: 'Ajustar quantidades rapidamente:',
@@ -50,7 +50,7 @@ const HELP_SECTIONS = [
       },
       {
         label: 'Usar a Câmera / Código de Barras Travado e Auto-Enquadramento:',
-        text: 'Toque no ícone de câmera à direita na barra inferior. Você pode apontar primeiro para o código de barras comercial (EAN-13 ou EAN-8) do produto ou da etiqueta até aparecer "Código lido" (ele fica travado para não ser trocado por acidente), afastar o celular para fotografar a etiqueta inteira de preço e confirmar o recorte verde já pré-ajustado. Se ler o código errado, basta tocar em "Recomeçar" para escanear novamente. Em Configurações > Fotos das Etiquetas, você também pode silenciar o som da câmera.',
+        text: 'Toque no ícone de câmera à direita na barra inferior. Você pode apontar primeiro para o código de barras comercial (EAN-13 ou EAN-8) do produto ou da etiqueta até aparecer "Código lido" (ele fica travado para não ser trocado por acidente), afastar o celular para fotografar a etiqueta inteira de preço e confirmar o recorte verde já pré-ajustado. Se ler o código errado, basta tocar em "Recomeçar" para escanear novamente. Tanto no Onboarding quanto em Configurações > Câmera e Fotos das Etiquetas, você pode silenciar o som da câmera e gerenciar o salvamento das fotos.',
       },
       {
         label: 'Etiquetas promocionais, cartazes e etiquetas de balança:',
@@ -58,7 +58,7 @@ const HELP_SECTIONS = [
       },
       {
         label: 'Identificação Híbrida (GS1 Brasil) e Ícone de Origem:',
-        text: 'A consulta online ocorre exclusivamente quando um código de barras comercial brasileiro válido (EAN-13 789/790 ou EAN-8) é lido pela câmera, garantindo rapidez offline instantânea e mínimo consumo de dados. O ícone discreto no canto inferior esquerdo da foto indica a origem: globo (Open Food Facts via EAN, ~1 KB), raio (Cache Local instantâneo sem rede) ou câmera (Leitura Local 100% offline por OCR). O preço vem sempre direto da etiqueta fotografada.',
+        text: 'A consulta online ocorre exclusivamente quando um código de barras comercial brasileiro válido (EAN-13 789/790 ou EAN-8) é lido pela câmera, consultando o Open Food Facts e, automaticamente em caso de itens não-alimentícios (HTTP 404), o Open Products Facts. O ícone discreto no canto inferior esquerdo da foto indica a origem: globo (API online, ~1 KB), raio (Cache Local instantâneo) ou câmera (Leitura Local 100% offline por OCR). O preço vem sempre direto da etiqueta fotografada.',
       },
     ],
   },

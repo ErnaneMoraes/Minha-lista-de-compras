@@ -39,7 +39,7 @@ O **Minha Lista de Compras** resolve isso ao oferecer:
 
 ### 2. Gerenciamento de Produtos na Lista
 - **Barra de ação tripla no rodapé:** `[Lembretes]` | `[+ Adicionar Produto]` | `[Câmera]`.
-- **Adição Manual e Ditado por Voz no Nome:** Formulário completo com máscara monetária BRL (`R$ 0,00`), unidade de medida (`un`, `kg`, `pct`, `g`, `L`, `ml`, `cx`, `dz`), categoria, observação e ícone de **microfone minimalista translúcido integrado dentro do campo Nome do produto** (`pt-BR`, com transcrição em tempo real, capitalização automática, sugestão de categoria e fallback seguro no Expo Go).
+- **Adição Manual, Modo Simplificado Padrão e Ditado por Voz no Nome:** O formulário abre por padrão no **Modo Simplificado** (Nome, Quantidade e Preço, mantendo `category` e `unit` inferidos em segundo plano), com pílula **`Simplificado`** no cabeçalho para alternar na hora para o Modo Completo (incluindo Unidade, Categoria e Descrição) e ajuste de padrão em **Configurações > Cadastro de Itens**. Inclui também máscara monetária BRL (`R$ 0,00`) e ícone de **microfone minimalista translúcido integrado dentro do campo Nome do produto** (`pt-BR`, com transcrição em tempo real, capitalização automática e fallback seguro no Expo Go).
 - **Categorização Automática Inteligente:** Dicionário local com mais de 420 palavras-chave (incluindo *Mercearia*, *Hortifruti*, *Frios e Laticínios*, *Açougue*, *Padaria*, *Bebidas*, *Limpeza*, *Higiene Pessoal*, *Farmácia*, *Medicamentos* e *Outros*) e **aprendizado local** que memoriza as categorias escolhidas pelo usuário.
 - **Controle rápido de quantidade:** Botões `-` e `+` diretamente no card de cada produto, além de busca em tempo real e edição ao tocar no card.
 - **Rodapé Fixo Totalizador:** Exibe permanentemente o valor total da compra, contagem de produtos/itens e status do orçamento.
@@ -69,7 +69,7 @@ O **Minha Lista de Compras** resolve isso ao oferecer:
 - **Exclusão Granular (`Configurações > Excluir Dados`):** Permite apagar separadamente **Todas as Fotos das Etiquetas**, **Todas as Listas de Compras**, **Todas as Listas de Lembretes** ou **Todos os Dados do Aplicativo** (incluindo cache de produtos e logs de diagnóstico), sempre com `ConfirmModal` e botão de atalho **"Fazer Backup Antes"** nas exclusões em massa.
 
 ### 7. Experiência do Usuário, Multi-Temas, Onboarding e Documentação Interna
-- **Configurações em Acordeões Recolhíveis:** Seções organizadas em acordeões (**Temas**, **Fotos das Etiquetas**, **Backup de Dados** e **Suporte e Informações**) que iniciam recolhidos para navegação limpa.
+- **Configurações em Acordeões Recolhíveis:** Seções organizadas em acordeões (**Temas**, **Cadastro de Itens**, **Câmera e Fotos das Etiquetas**, **Backup de Dados**, **Excluir Dados** e **Suporte e Informações**) que iniciam recolhidos para navegação limpa.
 - **Sistema Multi-Temas com Geometria Adaptativa (8 temas + Personalizado):** Lista vertical com amostras bicolores e construtor completo do tema **Personalizado** (Modo Base, 12 cores principais, estilo das bordas e espessura do contorno):
   - **Claro Padrão** e **Noturno Padrão** (cantos suaves)
   - **AMOLED Escuro** (preto puro `#000000` com esmeralda)
@@ -77,8 +77,8 @@ O **Minha Lista de Compras** resolve isso ao oferecer:
   - **Azul Oceano** (azul gelo e oceano)
   - **Material You** (minimalista, cartográfico claro `#F1F3F4`, azul `#1A73E8`, botões/filtros em pílula, cartões brancos com superfícies flutuantes e preços tabulares)
   - **Neon Matrix** e **Cyberpunk Neon** (paletas neon de alto contraste com geometria reta/tech)
-- **Onboarding Compacto e Revisitável:** Tela inicial de boas-vindas com cabeçalho enxuto, 4 guias práticos diretos ao ponto e configuração de fotos/retenção (persistida em `@mlc_offline:onboarding_completed`), podendo ser revista a qualquer momento pelo botão **"Rever Tela de Boas-Vindas (Onboarding)"** em **Configurações > Ajuda**.
-- **Telas de Ajuda e Sobre (com Histórico de Atualizações):** Acessíveis em **Configurações**, oferecendo guia passo a passo (`Ajuda`) e informações de versão semântica (`v1.0.7`), **Histórico de Atualizações** centralizado (`src/constants/appVersion.js`), privacidade 100% offline e link do repositório oficial (`Sobre`).
+- **Onboarding Compacto e Revisitável:** Tela inicial de boas-vindas com cabeçalho enxuto, 4 guias práticos diretos ao ponto e bloco unificado de **Câmera e Fotos das Etiquetas** (salvamento das fotos, som da câmera e retenção automática sincronizados diretamente com `Configurações`, persistido em `@mlc_offline:onboarding_completed`), podendo ser revista a qualquer momento pelo botão **"Rever Tela de Boas-Vindas (Onboarding)"** em **Configurações > Ajuda**.
+- **Telas de Ajuda e Sobre (com Histórico de Atualizações):** Acessíveis em **Configurações**, oferecendo guia passo a passo (`Ajuda`) e informações de versão semântica (`v1.0.8`), **Histórico de Atualizações** centralizado (`src/constants/appVersion.js`), privacidade 100% offline e link do repositório oficial (`Sobre`).
 - **Resiliência, Privacidade (LGPD) e Telemetria Local:** Proteção global com `<ErrorBoundary>`, logs técnicos locais anônimos em conformidade com a LGPD (com versão/build, registro de falhas e telemetria comparando preenchimento automático vs. editado manualmente, sem coleta de dados pessoais), otimização com `React.memo` e confirmações seguras via `ConfirmModal`.
 
 ---
@@ -98,8 +98,8 @@ O aplicativo utiliza uma pipeline otimizada para etiquetas de prateleira brasile
    - **Margem Superior Extra (`+12%`) e Normalização (`1000–1200px`):** Preserva títulos no topo da etiqueta e nitidez de centavos sobrescritos antes do OCR.
    - **Junção 2D de Centavos Sobrescritos:** Reúne reais em tipografia grande (`height >= 1.35x` mediana) com centavos sobrescritos à direita (`"9"` + `",49"` -> `9,49`; `"12"` + `",98"` -> `12,98`).
    - **Regras Promocionais e de Balança:** Exclui valores riscados ou secundários (`DE:`, `VALOR 100GR`, `VALOR KG`, `P/ NÃO COOPERADO`, `RS/kg`, `IBPT`, `TARA`, `PESO`), prioriza âncoras principais (`POR:`, `À VISTA`, `TOTAL`), protege contra leitura falsa de `R$` como dígito (`9` + `5,49` -> `5,49`) e descarta títulos ilegíveis retornando `""` limpo.
-5. **Enriquecimento Híbrido Open Food Facts v2 (GS1 Brasil 789/790) + Cache Inteligente (`productLookupService.js`):**
-   - **Fluxo 1 (GS1 Brasil 789/790 ou EAN-8 comercial + Módulo-10):** Aceita exclusivamente `EAN-13` brasileiro (`789`/`790`) ou `EAN-8` comercial lidos pela câmera nativa, com timeout de `6,5s` e 1 retry rápido (`1,5s`) apenas em erros transitórios de rede/5xx (nunca em `404`). Rejeita nomes numéricos/EAN vindos da API (ex.: `"7896045101641"`) preservando categoria/quantidade da API e revalida automaticamente categorias antigas no cache (`Outros`/`Hortifruti`).
+5. **Enriquecimento Híbrido Open Food Facts + Open Products Facts (GS1 Brasil 789/790) + Cache Inteligente (`productLookupService.js`):**
+   - **Fluxo 1 + 1b (GS1 Brasil 789/790 ou EAN-8 comercial + Módulo-10):** Aceita exclusivamente `EAN-13` brasileiro (`789`/`790`) ou `EAN-8` comercial lidos pela câmera nativa, com timeout de `6,5s` e 1 retry rápido (`1,5s`) apenas em erros transitórios de rede/5xx. Quando o Open Food Facts retorna `HTTP 404` (itens não-alimentícios como filtros de papel, limpeza ou higiene), consulta automaticamente o **Open Products Facts** (`world.openproductsfacts.org`) antes de cair para o OCR local. Rejeita nomes numéricos/EAN vindos da API preservando categoria/quantidade e revalida automaticamente categorias antigas no cache (`Outros`/`Hortifruti`).
    - **Sem EAN comercial ou etiquetas de balança (prefixo `2`):** Não realiza chamadas externas de busca textual, retornando imediatamente o resultado do OCR local (`origem: 'ocr_local'`) com filtro contra textos ilegíveis de moiré/reflexo (deixando o nome vazio para digitação limpa enquanto preserva o preço).
    - **Indicador Visual Discreto de Origem:** A miniatura da etiqueta no modal do produto exibe um ícone circular discreto no canto inferior esquerdo indicando a origem do preenchimento: **Globo** (Open Food Facts online), **Raio** (Cache Local sem rede) ou **Câmera** (Leitura Local por OCR).
    - **Baixo Consumo de Rede e Armazenamento:** Timeout de `6,5s` (`AbortController`), fallback 100% offline automático, cache local LRU ultracompacto limitado a `300` entradas (`< 25 KB`) e limpeza automática de arquivos temporários de OCR.
@@ -241,7 +241,7 @@ npm run build:apk
 Ao final do processo, o arquivo estará pronto em:
 
 ```text
-builds/minha-lista-compras-v1.0.7.apk
+builds/minha-lista-compras-v1.0.8.apk
 ```
 
 > **Dica:** A pasta `builds/` e arquivos `*.apk` estão listados no `.gitignore` para evitar o versionamento acidental de binários no repositório.

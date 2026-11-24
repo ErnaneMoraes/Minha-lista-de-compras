@@ -87,6 +87,7 @@ export const DEFAULT_SETTINGS = {
   saveTagPhotos: true,
   autoDeleteTagPhotos: false,
   tagPhotoRetentionDays: DEFAULT_RETENTION_DAYS,
+  simplifiedItemForm: true,
 };
 
 export const CATEGORIES = STANDARD_CATEGORIES;
@@ -285,12 +286,20 @@ export async function loadSettings() {
       cameraCaptureMode: 'partial',
       cameraSource:
         parsed?.cameraSource === 'inapp' ? 'inapp' : 'native',
+      cameraSoundEnabled:
+        parsed?.cameraSoundEnabled !== undefined
+          ? Boolean(parsed.cameraSoundEnabled)
+          : DEFAULT_SETTINGS.cameraSoundEnabled,
       saveTagPhotos:
         parsed?.saveTagPhotos !== undefined
           ? Boolean(parsed.saveTagPhotos)
           : DEFAULT_SETTINGS.saveTagPhotos,
       autoDeleteTagPhotos: Boolean(parsed?.autoDeleteTagPhotos),
       tagPhotoRetentionDays: validDays,
+      simplifiedItemForm:
+        parsed?.simplifiedItemForm !== undefined
+          ? Boolean(parsed.simplifiedItemForm)
+          : DEFAULT_SETTINGS.simplifiedItemForm,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

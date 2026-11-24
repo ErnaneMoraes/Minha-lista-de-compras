@@ -39,6 +39,7 @@ const AppSettingsContext = createContext({
   saveTagPhotos: true,
   autoDeleteTagPhotos: false,
   tagPhotoRetentionDays: DEFAULT_RETENTION_DAYS,
+  simplifiedItemForm: true,
   colors: defaultTheme.colors,
   shape: defaultTheme.shape,
   cardShadow: defaultTheme.cardShadow || null,
@@ -56,6 +57,7 @@ const AppSettingsContext = createContext({
   updatePhotoSettings: async () => {},
   toggleDarkMode: async () => {},
   setCameraSource: async () => {},
+  setSimplifiedItemForm: async () => {},
   notifyDataRestored: () => {},
   openSettings: () => {},
   closeSettings: () => {},
@@ -187,6 +189,12 @@ export function AppSettingsProvider({ children }) {
     await saveSettings({ cameraSource });
   }, []);
 
+  const setSimplifiedItemForm = useCallback(async (nextValue) => {
+    const simplifiedItemForm = Boolean(nextValue);
+    setSettings((prev) => ({ ...prev, simplifiedItemForm }));
+    await saveSettings({ simplifiedItemForm });
+  }, []);
+
   const notifyDataRestored = useCallback((restoredSettings) => {
     if (restoredSettings && typeof restoredSettings === 'object') {
       setSettings((prev) => ({ ...prev, ...restoredSettings }));
@@ -222,6 +230,10 @@ export function AppSettingsProvider({ children }) {
         autoDeleteTagPhotos: Boolean(settings.autoDeleteTagPhotos),
         tagPhotoRetentionDays:
           settings.tagPhotoRetentionDays || DEFAULT_RETENTION_DAYS,
+        simplifiedItemForm:
+          settings.simplifiedItemForm !== undefined
+            ? Boolean(settings.simplifiedItemForm)
+            : true,
         colors: activeTheme.colors,
         shape: activeTheme.shape,
         cardShadow: activeTheme.cardShadow || null,
@@ -239,6 +251,7 @@ export function AppSettingsProvider({ children }) {
         updatePhotoSettings,
         toggleDarkMode,
         setCameraSource,
+        setSimplifiedItemForm,
         notifyDataRestored,
         openSettings,
         closeSettings,

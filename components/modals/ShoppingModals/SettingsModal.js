@@ -5,6 +5,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  Switch,
   StyleSheet,
   ScrollView,
   ActivityIndicator,
@@ -101,6 +102,7 @@ export default function SettingsModal({
     saveTagPhotos,
     autoDeleteTagPhotos,
     tagPhotoRetentionDays,
+    simplifiedItemForm,
     colors,
     cardShadow,
     typography,
@@ -112,6 +114,7 @@ export default function SettingsModal({
     setThemeId,
     updateCustomThemeConfig,
     updatePhotoSettings,
+    setSimplifiedItemForm,
     notifyDataRestored,
     closeSettings,
   } = useAppSettings();
@@ -731,6 +734,7 @@ export default function SettingsModal({
   const isCustomActive = themeId === THEME_IDS.CUSTOM;
 
   const isThemesExpanded = expandedSection === 'themes';
+  const isItemFormExpanded = expandedSection === 'item_form';
   const isPhotosExpanded = expandedSection === 'photos';
   const isBackupExpanded = expandedSection === 'backup';
   const isDeleteExpanded = expandedSection === 'delete';
@@ -1884,7 +1888,126 @@ export default function SettingsModal({
               ) : null}
             </View>
 
-            {/* 2. ACCORDION: FOTOS DAS ETIQUETAS */}
+            {/* 1b. ACCORDION: CADASTRO DE ITENS */}
+            <View
+              style={[
+                styles.accordionCard,
+                {
+                  backgroundColor: colors.surfaceMuted,
+                  borderColor: isItemFormExpanded
+                    ? colors.principal
+                    : colors.borderColor,
+                  borderRadius: radiusCard,
+                  borderWidth,
+                },
+              ]}
+            >
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => toggleSection('item_form')}
+                style={styles.accordionHeader}
+                accessibilityLabel="Expandir ou recolher Cadastro de Itens"
+              >
+                <View
+                  style={[
+                    styles.accordionIconWrap,
+                    {
+                      backgroundColor: colors.verdeSuave,
+                      borderRadius: Math.min(12, radiusButton),
+                    },
+                  ]}
+                >
+                  <FontAwesome6
+                    name="list-check"
+                    size={15}
+                    color={colors.badgeText || colors.principal}
+                  />
+                </View>
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text
+                    style={[
+                      styles.accordionTitle,
+                      { color: colors.textoEscuro },
+                    ]}
+                  >
+                    Cadastro de Itens
+                  </Text>
+                  <Text
+                    style={[
+                      styles.accordionSubtitle,
+                      { color: colors.textMuted },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {simplifiedItemForm
+                      ? 'Modo Simplificado por padrão'
+                      : 'Modo Completo por padrão'}
+                  </Text>
+                </View>
+                <FontAwesome6
+                  name={isItemFormExpanded ? 'chevron-up' : 'chevron-down'}
+                  size={14}
+                  color={colors.textMuted}
+                />
+              </TouchableOpacity>
+
+              {isItemFormExpanded ? (
+                <View
+                  style={[
+                    styles.accordionBody,
+                    { borderTopColor: colors.borderColor },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.switchSettingCard,
+                      {
+                        backgroundColor: colors.card,
+                        borderColor: colors.borderColor,
+                        borderRadius: Math.min(12, radiusCard),
+                        borderWidth,
+                      },
+                    ]}
+                  >
+                    <View style={{ flex: 1, marginRight: 12 }}>
+                      <Text
+                        style={[
+                          styles.switchSettingTitle,
+                          { color: colors.textoEscuro },
+                        ]}
+                      >
+                        Modo simplificado no cadastro de itens
+                      </Text>
+                      <Text
+                        style={[
+                          styles.switchSettingDesc,
+                          { color: colors.textMuted },
+                        ]}
+                      >
+                        Exibe apenas Nome, Quantidade e Preço por padrão
+                        (desative para abrir sempre no Modo Completo)
+                      </Text>
+                    </View>
+                    <Switch
+                      value={Boolean(simplifiedItemForm)}
+                      onValueChange={(val) => setSimplifiedItemForm(val)}
+                      trackColor={{
+                        false: colors.disabledBackground || colors.borderColor,
+                        true: colors.verdeSuave,
+                      }}
+                      thumbColor={
+                        simplifiedItemForm
+                          ? colors.principal
+                          : colors.textMuted
+                      }
+                      accessibilityLabel="Modo simplificado no cadastro de itens"
+                    />
+                  </View>
+                </View>
+              ) : null}
+            </View>
+
+            {/* 2. ACCORDION: CÂMERA E FOTOS DAS ETIQUETAS */}
             <View
               style={[
                 styles.accordionCard,
@@ -1902,7 +2025,7 @@ export default function SettingsModal({
                 activeOpacity={0.8}
                 onPress={() => toggleSection('photos')}
                 style={styles.accordionHeader}
-                accessibilityLabel="Expandir ou recolher Fotos das Etiquetas"
+                accessibilityLabel="Expandir ou recolher Câmera e Fotos das Etiquetas"
               >
                 <View
                   style={[
@@ -1926,7 +2049,7 @@ export default function SettingsModal({
                       { color: colors.textoEscuro },
                     ]}
                   >
-                    Fotos das Etiquetas
+                    Câmera e Fotos das Etiquetas
                   </Text>
                   <Text
                     style={[
@@ -1936,6 +2059,7 @@ export default function SettingsModal({
                     numberOfLines={1}
                   >
                     {saveTagPhotos ? 'Salvamento ativo' : 'Desativado'} •{' '}
+                    {cameraSoundEnabled ? 'Com som' : 'Silenciosa'} •{' '}
                     {photoCountLabel}
                   </Text>
                 </View>
@@ -1953,13 +2077,87 @@ export default function SettingsModal({
                     { borderTopColor: colors.borderColor },
                   ]}
                 >
+                  {/* Toggle: Salvar fotos das etiquetas */}
+                  <Text
+                    style={[styles.builderLabel, { color: colors.textoEscuro }]}
+                  >
+                    Salvar fotos das etiquetas
+                  </Text>
+                  <View style={[styles.pillRow, { marginBottom: 12 }]}>
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() =>
+                        updatePhotoSettings({ saveTagPhotos: true })
+                      }
+                      style={[
+                        styles.builderPill,
+                        {
+                          backgroundColor: saveTagPhotos
+                            ? colors.principal
+                            : colors.card,
+                          borderColor: saveTagPhotos
+                            ? colors.principal
+                            : colors.borderColor,
+                          borderRadius: Math.min(10, radiusButton),
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.builderPillText,
+                          {
+                            color: saveTagPhotos
+                              ? colors.textoPrincipal
+                              : colors.textoEscuro,
+                          },
+                        ]}
+                      >
+                        Sim
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() =>
+                        updatePhotoSettings({
+                          saveTagPhotos: false,
+                          autoDeleteTagPhotos: false,
+                        })
+                      }
+                      style={[
+                        styles.builderPill,
+                        {
+                          backgroundColor: !saveTagPhotos
+                            ? colors.principal
+                            : colors.card,
+                          borderColor: !saveTagPhotos
+                            ? colors.principal
+                            : colors.borderColor,
+                          borderRadius: Math.min(10, radiusButton),
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.builderPillText,
+                          {
+                            color: !saveTagPhotos
+                              ? colors.textoPrincipal
+                              : colors.textoEscuro,
+                          },
+                        ]}
+                      >
+                        Não
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
                   {/* Toggle: Som da câmera ao fotografar */}
                   <Text
                     style={[styles.builderLabel, { color: colors.textoEscuro }]}
                   >
                     Som da câmera ao fotografar
                   </Text>
-                  <View style={[styles.pillRow, { marginBottom: 12 }]}>
+                  <View style={styles.pillRow}>
                     <TouchableOpacity
                       activeOpacity={0.8}
                       onPress={() =>
@@ -2024,77 +2222,6 @@ export default function SettingsModal({
                     </TouchableOpacity>
                   </View>
 
-                  {/* Toggle: Salvar fotos das etiquetas */}
-                  <Text
-                    style={[styles.builderLabel, { color: colors.textoEscuro }]}
-                  >
-                    Salvar fotos das etiquetas
-                  </Text>
-                  <View style={styles.pillRow}>
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      onPress={() =>
-                        updatePhotoSettings({ saveTagPhotos: true })
-                      }
-                      style={[
-                        styles.builderPill,
-                        {
-                          backgroundColor: saveTagPhotos
-                            ? colors.principal
-                            : colors.card,
-                          borderColor: saveTagPhotos
-                            ? colors.principal
-                            : colors.borderColor,
-                          borderRadius: Math.min(10, radiusButton),
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.builderPillText,
-                          {
-                            color: saveTagPhotos
-                              ? colors.textoPrincipal
-                              : colors.textoEscuro,
-                          },
-                        ]}
-                      >
-                        Sim
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      onPress={() =>
-                        updatePhotoSettings({ saveTagPhotos: false })
-                      }
-                      style={[
-                        styles.builderPill,
-                        {
-                          backgroundColor: !saveTagPhotos
-                            ? colors.principal
-                            : colors.card,
-                          borderColor: !saveTagPhotos
-                            ? colors.principal
-                            : colors.borderColor,
-                          borderRadius: Math.min(10, radiusButton),
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.builderPillText,
-                          {
-                            color: !saveTagPhotos
-                              ? colors.textoPrincipal
-                              : colors.textoEscuro,
-                          },
-                        ]}
-                      >
-                        Não
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-
                   {saveTagPhotos ? (
                     <>
                       <Text
@@ -2103,7 +2230,7 @@ export default function SettingsModal({
                           { color: colors.textoEscuro, marginTop: 12 },
                         ]}
                       >
-                        Exclusão automática por tempo
+                        Excluir fotos automaticamente após
                       </Text>
                       <View style={styles.pillRow}>
                         <TouchableOpacity
@@ -4087,6 +4214,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingTop: 14,
     paddingBottom: 14,
+  },
+  switchSettingCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+  },
+  switchSettingTitle: {
+    fontSize: 13.5,
+    fontWeight: 'bold',
+    marginBottom: 3,
+  },
+  switchSettingDesc: {
+    fontSize: 12,
+    lineHeight: 17,
   },
   themeRowCard: {
     flexDirection: 'row',

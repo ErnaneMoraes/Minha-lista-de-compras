@@ -22,8 +22,10 @@ const TAX_KEYWORDS_RE =
 const TAX_HEX_RE =
   /(?:^|[\s-])-[\s]*[0-9A-F]{5,8}\b|\b(?=[0-9A-F]*\d)(?=[0-9A-F]*[A-F])[0-9A-F]{5,8}\b/i;
 const REFERENCE_PRICE_RE =
-  /\b(DE\s*:|PRECO\s*(?:DO\s*|POR\s*|EQUIVALE\s*A?\s*)?(?:LITRO|L\b|LT\b|KG|QUILO|100\s*GR?|100\s*ML|UNID|UN\b|METRO)|PRECO\s+EQUIVALE|EQUIVALE\s+A|VALOR\s*(?:POR\s+|DO\s+)?(?:LITRO|KG|UN\b|100\s*GR?|100\s*ML|100)|POR\s*(?:KG|LITRO|L\b|LT\b|QUILO)|P\/\s*(?:KG|L\b|LT\b|LITRO|NAO\s+COOPERADO)|NAO\s+COOPERADO)\b|R[\$S5]\s*\/\s*(?:KG|L\b|LT\b|LITRO|ML|UN)/i;
-const THREE_DECIMAL_PRICE_RE = /\bR?\$?\s*\d+[.,]\d{3}\b/;
+  /\b(DE\s*:|PRECO\s*(?:DO\s*|POR\s*|EQUIVALE\s*A?\s*)?(?:LITRO|L\b|LT\b|KG|QUILO|100\s*GR?|100\s*ML|UNID|UN\b|METRO)|PRECO\s+EQUIVALE|EQUIVALE\s+A?|VALOR\s*(?:POR\s+|DO\s+)?(?:LITRO|KG|UN\b|100\s*GR?|100\s*ML|100)|POR\s*(?:KG|LITRO|L\b|LT\b|QUILO)|P\s*\/\s*(?:KG|L\b|LT\b|LITRO|NAO\s+COOPERADO)|NAO\s+COOPERADO)\b|(?:^|[\s\d.,])(?:P\s*\/\s*(?:KG|LT|L\b|LITRO)|\/\s*(?:KG|LT|LITRO)|R[\$S5]\s*\/\s*(?:KG|L\b|LT\b|LITRO|ML|UN))/i;
+const THREE_DECIMAL_PRICE_RE = /(?:^|[^\d])R?\$?\s*\d+[.,]\d{3}(?!\d)/i;
+const EQUIVALENT_UNIT_LINE_RE =
+  /\b(EQUIVALE|VALOR\s*100|PRECO\s+EQUIVALE)\b|(?:P\s*\/\s*(?:KG|LT|LITRO)|\/\s*(?:KG|LT|LITRO)|R[\$S5]\s*\/\s*KG)/i;
 const META_NOISE_RE =
   /\b(CAMPANHA|COD\.?|CODIGO|PLU|EAN|VALIDADE|VALIDO\s+ATE|VAL\.|LOTE|EMISSAO|EMBALADO|TARA|PESO|ATUALIZ\w*|LOJA|SECAO|SEC\.?\s*:?|OFERTA\s+VALIDA|BAIXE\s+O\s+APP)\b/i;
 const NON_PRODUCT_KEYWORDS_RE =
@@ -294,15 +296,29 @@ function isVerticalOrMarginNoise(bbox, text, imageWidth) {
 
 function annotateNoiseLines(lineRecords, imageWidth = 0) {
   let prevWasTaxHeader = false;
-  return lineRecords.map((line) => {
+  let prevWasEquivHeader = false;
+  return lineRecords.map((line, idx) => {
     const asciiLine = stripAccents(line.text);
+    const nextAscii =
+      idx + 1 < lineRecords.length
+        ? stripAccents(lineRecords[idx + 1].text)
+        : '';
     const taxHeader = TAX_KEYWORDS_RE.test(asciiLine);
+    const equivHeader = EQUIVALENT_UNIT_LINE_RE.test(asciiLine);
     const tax =
       isTaxNoise(line.text) ||
       (prevWasTaxHeader &&
         /\d+[.,]\d{2}/.test(line.text) &&
         (!line.bbox.hasBbox || line.bbox.height < 35));
-    const refPrice = isReferencePriceNoise(line.text);
+    const adjacentToEquivHeader =
+      (prevWasEquivHeader &&
+        /\d+[.,]\d{2,3}/.test(line.text) &&
+        (!line.bbox.hasBbox || line.bbox.height < 42)) ||
+      (EQUIVALENT_UNIT_LINE_RE.test(nextAscii) &&
+        !/\d+[.,]\d{2,3}/.test(nextAscii) &&
+        /\d+[.,]\d{2,3}/.test(line.text) &&
+        (!line.bbox.hasBbox || line.bbox.height < 42));
+    const refPrice = isReferencePriceNoise(line.text) || adjacentToEquivHeader;
     const meta = isMetaNoise(line.text);
     const barcode = isBarcodeNoise(line.text);
     const isNonProductLine = NON_PRODUCT_KEYWORDS_RE.test(asciiLine);
@@ -313,6 +329,7 @@ function annotateNoiseLines(lineRecords, imageWidth = 0) {
     );
 
     prevWasTaxHeader = taxHeader && !/\d+[.,]\d{2}/.test(line.text);
+    prevWasEquivHeader = equivHeader && !/\d+[.,]\d{2,3}/.test(line.text);
 
     return {
       ...line,
@@ -438,14 +455,17 @@ function extractMainPrice(annotatedLines, wordRecords, imageWidth, imageHeight) 
 
   const isInNoiseContext = (bbox, tokenText) => {
     if (THREE_DECIMAL_PRICE_RE.test(tokenText)) return true;
+    if (REFERENCE_PRICE_RE.test(stripAccents(tokenText))) return true;
     if (!bbox.hasBbox) return false;
     const isGiantDigit = maxHeight > 0 && bbox.height >= maxHeight * 0.65;
-    if (isGiantDigit) return false;
 
     for (const line of annotatedLines) {
       if (!line.bbox.hasBbox) continue;
       if (overlapsLineVertically(bbox, line.bbox)) {
-        if (line.flags.isPriceBlacklist) {
+        if (line.flags.refPrice) {
+          return true;
+        }
+        if (!isGiantDigit && line.flags.isPriceBlacklist) {
           return true;
         }
       }
@@ -1036,6 +1056,18 @@ const VALID_SHORT_PT_TOKENS = new Set([
 export function isReadableProductTitle(text) {
   const clean = normalizeText(text);
   if (!clean) return false;
+
+  // Rejeita artefatos típicos de reflexo em acrílico / pontuação quebrada (ex: "E” ...", ": :=t", "U/su")
+  if (/:=|[\u201C\u201D\u00AB\u00BB\u00A1\u00BF\u00A7\u00A6~^]/.test(clean)) {
+    return false;
+  }
+  if (/(?:^|\s)[:=](?:\s|$)|[:=]{2,}/.test(clean)) {
+    return false;
+  }
+  if (/\b[A-Za-zÀ-ÿ]{1,2}\/[A-Za-zÀ-ÿ]{1,2}\b/.test(clean)) {
+    return false;
+  }
+
   const ascii = stripAccents(clean);
   const alphaOnly = ascii.replace(/[^a-zA-Z]/g, '');
   if (alphaOnly.length < 4) return false;
@@ -1049,20 +1081,27 @@ export function isReadableProductTitle(text) {
 
   let badTokenCount = 0;
   let goodAlphaWordCount = 0;
+  let nonPtShortTokens = 0;
 
   for (const tok of tokens) {
-    const lower = tok.toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (!lower) continue;
-
-    // Preserva medidas válidas (ex: 500ml, 1kg, 3l, 100g, 12un, 100%)
-    if (/^\d+(?:ml|l|lt|kg|g|gr|mg|un|pct|cx|x)?$/i.test(lower)) {
-      if (lower.length === 1 && /^\d$/.test(lower)) {
-        // Dígito isolado como "1" em "Tipo 1" é tolerado se houver palavras boas
-      }
+    // Slash entre letras curtas ou mistura com dígitos (ex: "1u2", "U/su")
+    if (/\//.test(tok) && !/^\d{1,3}\/\d{1,3}$/.test(tok)) {
+      badTokenCount += 1;
       continue;
     }
 
-    // Mistura de letra + dígito fora de medida padrão (ex: "G0fa", "B3x")
+    const lower = tok.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!lower) {
+      badTokenCount += 1;
+      continue;
+    }
+
+    // Preserva medidas válidas (ex: 500ml, 1kg, 3l, 100g, 12un, 30un) — rejeita 4+ dígitos + "un" (ex: 2506un)
+    if (/^\d{1,3}(?:ml|l|lt|kg|g|gr|mg|un|pct|cx|x)?$/i.test(lower) || /^\d{4}(?:ml|g|gr|mg)$/i.test(lower)) {
+      continue;
+    }
+
+    // Mistura de letra + dígito fora de medida padrão (ex: "G0fa", "B3x", "1u2", "2506un")
     if (/[a-z]/.test(lower) && /\d/.test(lower)) {
       if (!/^(?:rap10|omega3|zero|vit\d|c\d{1,2}|t\d)$/i.test(lower)) {
         badTokenCount += 1;
@@ -1073,6 +1112,7 @@ export function isReadableProductTitle(text) {
     if (lower.length <= 2) {
       if (!VALID_SHORT_PT_TOKENS.has(lower)) {
         badTokenCount += 1;
+        nonPtShortTokens += 1;
       }
       continue;
     }
@@ -1090,6 +1130,8 @@ export function isReadableProductTitle(text) {
   }
 
   if (goodAlphaWordCount === 0) return false;
+  if (nonPtShortTokens >= 2) return false;
+  if (badTokenCount >= 2 && badTokenCount / tokens.length >= 0.3) return false;
   if (badTokenCount / tokens.length >= 0.4) return false;
   return true;
 }
@@ -1461,7 +1503,7 @@ export function parseShelfLabel(ocrPayload) {
   let name = extractProductName(annotatedLines, imageHeight, priceRaw);
   if (!name && ocrPayload?.titleText && !isRejectedProductLine(ocrPayload.titleText)) {
     const cleanedTitle = cleanProductNameText(ocrPayload.titleText, priceRaw);
-    if (cleanedTitle.length >= 3) {
+    if (cleanedTitle.length >= 3 && isReadableProductTitle(cleanedTitle)) {
       name = formatProductNameTitleCase(cleanedTitle);
     }
   } else if (
@@ -1476,7 +1518,8 @@ export function parseShelfLabel(ocrPayload) {
       cleanedTitle.length > name.length &&
       titleWords.length >= 2 &&
       !isTaxNoise(cleanedTitle) &&
-      !isReferencePriceNoise(cleanedTitle)
+      !isReferencePriceNoise(cleanedTitle) &&
+      isReadableProductTitle(cleanedTitle)
     ) {
       name = formatProductNameTitleCase(cleanedTitle);
     }

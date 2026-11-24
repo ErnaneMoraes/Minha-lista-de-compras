@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -9,10 +9,7 @@ import {
 import { FontAwesome6 } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppSettings } from '../../context/AppSettingsContext';
-import {
-  RETENTION_DAY_OPTIONS,
-  DEFAULT_RETENTION_DAYS,
-} from '../../services/tagPhotoStorage';
+import { RETENTION_DAY_OPTIONS } from '../../services/tagPhotoStorage';
 
 const GUIDANCE_CARDS = [
   {
@@ -47,29 +44,15 @@ export default function OnboardingScreen({ onComplete, isReplay = false }) {
     radiusCard,
     radiusButton,
     borderWidth,
-    saveTagPhotos: initialSavePhotos,
-    autoDeleteTagPhotos: initialAutoDelete,
-    tagPhotoRetentionDays: initialRetentionDays,
+    cameraSoundEnabled,
+    saveTagPhotos,
+    autoDeleteTagPhotos,
+    tagPhotoRetentionDays,
     updatePhotoSettings,
   } = useAppSettings();
   const insets = useSafeAreaInsets();
 
-  const [savePhotosChoice, setSavePhotosChoice] = useState(
-    initialSavePhotos !== undefined ? Boolean(initialSavePhotos) : true
-  );
-  const [autoDeleteChoice, setAutoDeleteChoice] = useState(
-    Boolean(initialAutoDelete)
-  );
-  const [retentionDaysChoice, setRetentionDaysChoice] = useState(
-    initialRetentionDays || DEFAULT_RETENTION_DAYS
-  );
-
-  const finishOnboarding = async () => {
-    await updatePhotoSettings({
-      saveTagPhotos: savePhotosChoice,
-      autoDeleteTagPhotos: savePhotosChoice ? autoDeleteChoice : false,
-      tagPhotoRetentionDays: retentionDaysChoice,
-    });
+  const finishOnboarding = () => {
     onComplete?.();
   };
 
@@ -165,12 +148,12 @@ export default function OnboardingScreen({ onComplete, isReplay = false }) {
           ))}
         </View>
 
-        {/* Photo & Retention Preferences */}
+        {/* Camera & Photo Preferences (unified with Configurações) */}
         <View
           style={[
             styles.photoPrefCard,
             {
-              backgroundColor: colors.card,
+              backgroundColor: colors.surfaceMuted,
               borderColor: colors.borderColor,
               borderRadius: radiusCard,
               borderWidth,
@@ -181,205 +164,306 @@ export default function OnboardingScreen({ onComplete, isReplay = false }) {
             <View
               style={[
                 styles.photoPrefIconWrap,
-                { backgroundColor: colors.verdeSuave },
+                {
+                  backgroundColor: colors.verdeSuave,
+                  borderRadius: Math.min(12, radiusButton),
+                },
               ]}
             >
               <FontAwesome6
-                name="image"
+                name="images"
                 size={15}
                 color={colors.badgeText || colors.principal}
               />
             </View>
-            <Text
-              style={[styles.photoPrefTitle, { color: colors.textoEscuro }]}
-            >
-              Preferências de Fotos das Etiquetas
+            <View style={{ flex: 1 }}>
+              <Text
+                style={[styles.photoPrefTitle, { color: colors.textoEscuro }]}
+              >
+                Câmera e Fotos das Etiquetas
+              </Text>
+              <Text
+                style={[styles.photoPrefSubtitle, { color: colors.textMuted }]}
+                numberOfLines={1}
+              >
+                {saveTagPhotos ? 'Salvamento ativo' : 'Desativado'} •{' '}
+                {cameraSoundEnabled ? 'Com som' : 'Silenciosa'}
+              </Text>
+            </View>
+          </View>
+
+          <View
+            style={[
+              styles.photoPrefBody,
+              { borderTopColor: colors.borderColor },
+            ]}
+          >
+            {/* 1. Salvar fotos das etiquetas */}
+            <Text style={[styles.photoQuestion, { color: colors.textoEscuro }]}>
+              Salvar fotos das etiquetas
             </Text>
-          </View>
+            <Text style={[styles.photoSubHint, { color: colors.textMuted }]}>
+              As fotos são compactadas (~30 KB) no próprio aparelho para você
+              conferir preços quando quiser.
+            </Text>
 
-          <Text style={[styles.photoQuestion, { color: colors.textoEscuro }]}>
-            Deseja salvar as fotos das etiquetas?
-          </Text>
-          <Text style={[styles.photoSubHint, { color: colors.textMuted }]}>
-            As fotos são compactadas (~30 KB) no próprio aparelho para você
-            conferir preços quando quiser.
-          </Text>
-
-          <View style={styles.choiceRow}>
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => setSavePhotosChoice(true)}
-              style={[
-                styles.choicePill,
-                {
-                  backgroundColor: savePhotosChoice
-                    ? colors.principal
-                    : colors.surfaceMuted,
-                  borderColor: savePhotosChoice
-                    ? colors.principal
-                    : colors.borderColor,
-                  borderRadius: Math.min(10, radiusButton),
-                },
-              ]}
-            >
-              <Text
+            <View style={[styles.choiceRow, { marginBottom: 12 }]}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => updatePhotoSettings({ saveTagPhotos: true })}
                 style={[
-                  styles.choicePillText,
+                  styles.choicePill,
                   {
-                    color: savePhotosChoice
-                      ? colors.textoPrincipal
-                      : colors.textoEscuro,
+                    backgroundColor: saveTagPhotos
+                      ? colors.principal
+                      : colors.card,
+                    borderColor: saveTagPhotos
+                      ? colors.principal
+                      : colors.borderColor,
+                    borderRadius: Math.min(10, radiusButton),
                   },
                 ]}
               >
-                Sim
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => setSavePhotosChoice(false)}
-              style={[
-                styles.choicePill,
-                {
-                  backgroundColor: !savePhotosChoice
-                    ? colors.principal
-                    : colors.surfaceMuted,
-                  borderColor: !savePhotosChoice
-                    ? colors.principal
-                    : colors.borderColor,
-                  borderRadius: Math.min(10, radiusButton),
-                },
-              ]}
-            >
-              <Text
+                <Text
+                  style={[
+                    styles.choicePillText,
+                    {
+                      color: saveTagPhotos
+                        ? colors.textoPrincipal
+                        : colors.textoEscuro,
+                    },
+                  ]}
+                >
+                  Sim
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() =>
+                  updatePhotoSettings({
+                    saveTagPhotos: false,
+                    autoDeleteTagPhotos: false,
+                  })
+                }
                 style={[
-                  styles.choicePillText,
+                  styles.choicePill,
                   {
-                    color: !savePhotosChoice
-                      ? colors.textoPrincipal
-                      : colors.textoEscuro,
+                    backgroundColor: !saveTagPhotos
+                      ? colors.principal
+                      : colors.card,
+                    borderColor: !saveTagPhotos
+                      ? colors.principal
+                      : colors.borderColor,
+                    borderRadius: Math.min(10, radiusButton),
                   },
                 ]}
               >
-                Não
-              </Text>
-            </TouchableOpacity>
-          </View>
+                <Text
+                  style={[
+                    styles.choicePillText,
+                    {
+                      color: !saveTagPhotos
+                        ? colors.textoPrincipal
+                        : colors.textoEscuro,
+                    },
+                  ]}
+                >
+                  Não
+                </Text>
+              </TouchableOpacity>
+            </View>
 
-          {savePhotosChoice ? (
-            <View
-              style={[
-                styles.followUpBlock,
-                { borderTopColor: colors.borderColor },
-              ]}
-            >
-              <Text
-                style={[styles.photoQuestion, { color: colors.textoEscuro }]}
+            {/* 2. Som da câmera ao fotografar */}
+            <Text style={[styles.photoQuestion, { color: colors.textoEscuro }]}>
+              Som da câmera ao fotografar
+            </Text>
+            <View style={styles.choiceRow}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() =>
+                  updatePhotoSettings({ cameraSoundEnabled: true })
+                }
+                style={[
+                  styles.choicePill,
+                  {
+                    backgroundColor: cameraSoundEnabled
+                      ? colors.principal
+                      : colors.card,
+                    borderColor: cameraSoundEnabled
+                      ? colors.principal
+                      : colors.borderColor,
+                    borderRadius: Math.min(10, radiusButton),
+                  },
+                ]}
               >
-                Deseja excluir as fotos automaticamente após um período?
-              </Text>
-              <View style={styles.choiceRow}>
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  onPress={() => setAutoDeleteChoice(true)}
+                <Text
                   style={[
-                    styles.choicePill,
+                    styles.choicePillText,
                     {
-                      backgroundColor: autoDeleteChoice
-                        ? colors.principal
-                        : colors.surfaceMuted,
-                      borderColor: autoDeleteChoice
-                        ? colors.principal
-                        : colors.borderColor,
-                      borderRadius: Math.min(10, radiusButton),
+                      color: cameraSoundEnabled
+                        ? colors.textoPrincipal
+                        : colors.textoEscuro,
                     },
                   ]}
                 >
-                  <Text
-                    style={[
-                      styles.choicePillText,
-                      {
-                        color: autoDeleteChoice
-                          ? colors.textoPrincipal
-                          : colors.textoEscuro,
-                      },
-                    ]}
-                  >
-                    Sim
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  onPress={() => setAutoDeleteChoice(false)}
+                  Sim
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() =>
+                  updatePhotoSettings({ cameraSoundEnabled: false })
+                }
+                style={[
+                  styles.choicePill,
+                  {
+                    backgroundColor: !cameraSoundEnabled
+                      ? colors.principal
+                      : colors.card,
+                    borderColor: !cameraSoundEnabled
+                      ? colors.principal
+                      : colors.borderColor,
+                    borderRadius: Math.min(10, radiusButton),
+                  },
+                ]}
+              >
+                <Text
                   style={[
-                    styles.choicePill,
+                    styles.choicePillText,
                     {
-                      backgroundColor: !autoDeleteChoice
-                        ? colors.principal
-                        : colors.surfaceMuted,
-                      borderColor: !autoDeleteChoice
-                        ? colors.principal
-                        : colors.borderColor,
-                      borderRadius: Math.min(10, radiusButton),
+                      color: !cameraSoundEnabled
+                        ? colors.textoPrincipal
+                        : colors.textoEscuro,
                     },
                   ]}
                 >
-                  <Text
-                    style={[
-                      styles.choicePillText,
-                      {
-                        color: !autoDeleteChoice
-                          ? colors.textoPrincipal
-                          : colors.textoEscuro,
-                      },
-                    ]}
-                  >
-                    Não
-                  </Text>
-                </TouchableOpacity>
-              </View>
+                  Não
+                </Text>
+              </TouchableOpacity>
+            </View>
 
-              {autoDeleteChoice ? (
-                <View style={styles.daysRow}>
-                  {RETENTION_DAY_OPTIONS.map((days) => {
-                    const active = retentionDaysChoice === days;
-                    return (
-                      <TouchableOpacity
-                        key={days}
-                        activeOpacity={0.8}
-                        onPress={() => setRetentionDaysChoice(days)}
-                        style={[
-                          styles.dayPill,
-                          {
-                            backgroundColor: active
-                              ? colors.principal
-                              : colors.surfaceMuted,
-                            borderColor: active
-                              ? colors.principal
-                              : colors.borderColor,
-                            borderRadius: Math.min(10, radiusButton),
-                          },
-                        ]}
-                      >
-                        <Text
+            {/* 3. Excluir fotos automaticamente após */}
+            {saveTagPhotos ? (
+              <View
+                style={[
+                  styles.followUpBlock,
+                  { borderTopColor: colors.borderColor },
+                ]}
+              >
+                <Text
+                  style={[styles.photoQuestion, { color: colors.textoEscuro }]}
+                >
+                  Excluir fotos automaticamente após
+                </Text>
+                <View style={styles.choiceRow}>
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() =>
+                      updatePhotoSettings({ autoDeleteTagPhotos: true })
+                    }
+                    style={[
+                      styles.choicePill,
+                      {
+                        backgroundColor: autoDeleteTagPhotos
+                          ? colors.principal
+                          : colors.card,
+                        borderColor: autoDeleteTagPhotos
+                          ? colors.principal
+                          : colors.borderColor,
+                        borderRadius: Math.min(10, radiusButton),
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.choicePillText,
+                        {
+                          color: autoDeleteTagPhotos
+                            ? colors.textoPrincipal
+                            : colors.textoEscuro,
+                        },
+                      ]}
+                    >
+                      Sim
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() =>
+                      updatePhotoSettings({ autoDeleteTagPhotos: false })
+                    }
+                    style={[
+                      styles.choicePill,
+                      {
+                        backgroundColor: !autoDeleteTagPhotos
+                          ? colors.principal
+                          : colors.card,
+                        borderColor: !autoDeleteTagPhotos
+                          ? colors.principal
+                          : colors.borderColor,
+                        borderRadius: Math.min(10, radiusButton),
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.choicePillText,
+                        {
+                          color: !autoDeleteTagPhotos
+                            ? colors.textoPrincipal
+                            : colors.textoEscuro,
+                        },
+                      ]}
+                    >
+                      Não
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {autoDeleteTagPhotos ? (
+                  <View style={styles.daysRow}>
+                    {RETENTION_DAY_OPTIONS.map((days) => {
+                      const active = tagPhotoRetentionDays === days;
+                      return (
+                        <TouchableOpacity
+                          key={days}
+                          activeOpacity={0.8}
+                          onPress={() =>
+                            updatePhotoSettings({ tagPhotoRetentionDays: days })
+                          }
                           style={[
-                            styles.dayPillText,
+                            styles.dayPill,
                             {
-                              color: active
-                                ? colors.textoPrincipal
-                                : colors.textoEscuro,
+                              backgroundColor: active
+                                ? colors.principal
+                                : colors.card,
+                              borderColor: active
+                                ? colors.principal
+                                : colors.borderColor,
+                              borderRadius: Math.min(10, radiusButton),
                             },
                           ]}
                         >
-                          {days} dias
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              ) : null}
-            </View>
-          ) : null}
+                          <Text
+                            style={[
+                              styles.dayPillText,
+                              {
+                                color: active
+                                  ? colors.textoPrincipal
+                                  : colors.textoEscuro,
+                              },
+                            ]}
+                          >
+                            {days} dias
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
         </View>
 
         <View
@@ -529,32 +613,41 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   photoPrefCard: {
-    padding: 13,
+    overflow: 'hidden',
     marginTop: 2,
     marginBottom: 10,
   },
   photoPrefHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 9,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
   },
   photoPrefIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 9,
+    width: 38,
+    height: 38,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 9,
+    marginRight: 12,
   },
   photoPrefTitle: {
-    flex: 1,
-    fontSize: 14.5,
+    fontSize: 15,
     fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  photoPrefSubtitle: {
+    fontSize: 12,
+  },
+  photoPrefBody: {
+    borderTopWidth: 1,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 14,
   },
   photoQuestion: {
-    fontSize: 13,
+    fontSize: 12.5,
     fontWeight: '700',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   photoSubHint: {
     fontSize: 12,

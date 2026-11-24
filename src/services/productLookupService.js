@@ -143,6 +143,15 @@ const VALID_SHORT_PT_WORDS = new Set([
 export function isReadableProductTitle(text) {
   const clean = String(text || '').trim();
   if (!clean) return false;
+  if (/:=|[\u201C\u201D\u00AB\u00BB\u00A1\u00BF\u00A7\u00A6~^]/.test(clean)) {
+    return false;
+  }
+  if (/(?:^|\s)[:=](?:\s|$)|[:=]{2,}/.test(clean)) {
+    return false;
+  }
+  if (/\b[A-Za-zÀ-ÿ]{1,2}\/[A-Za-zÀ-ÿ]{1,2}\b/.test(clean)) {
+    return false;
+  }
   const ascii = stripAccents(clean);
   const alphaOnly = ascii.replace(/[^a-zA-Z]/g, '');
   if (alphaOnly.length < 4) return false;
@@ -156,10 +165,23 @@ export function isReadableProductTitle(text) {
 
   let badCount = 0;
   let goodWords = 0;
+  let nonPtShortTokens = 0;
   for (const tok of tokens) {
+    if (/\//.test(tok) && !/^\d{1,3}\/\d{1,3}$/.test(tok)) {
+      badCount += 1;
+      continue;
+    }
     const lower = tok.toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (!lower) continue;
-    if (/^\d+(?:ml|l|lt|kg|g|gr|mg|un|pct|cx|x)?$/i.test(lower)) continue;
+    if (!lower) {
+      badCount += 1;
+      continue;
+    }
+    if (
+      /^\d{1,3}(?:ml|l|lt|kg|g|gr|mg|un|pct|cx|x)?$/i.test(lower) ||
+      /^\d{4}(?:ml|g|gr|mg)$/i.test(lower)
+    ) {
+      continue;
+    }
     if (/[a-z]/.test(lower) && /\d/.test(lower)) {
       if (!/^(?:rap10|omega3|c\d{1,2}|t\d)$/i.test(lower)) {
         badCount += 1;
@@ -167,7 +189,10 @@ export function isReadableProductTitle(text) {
       }
     }
     if (lower.length <= 2) {
-      if (!VALID_SHORT_PT_WORDS.has(lower)) badCount += 1;
+      if (!VALID_SHORT_PT_WORDS.has(lower)) {
+        badCount += 1;
+        nonPtShortTokens += 1;
+      }
       continue;
     }
     if (
@@ -183,6 +208,8 @@ export function isReadableProductTitle(text) {
   }
 
   if (goodWords === 0) return false;
+  if (nonPtShortTokens >= 2) return false;
+  if (badCount >= 2 && badCount / tokens.length >= 0.3) return false;
   return badCount / tokens.length < 0.4;
 }
 
@@ -629,10 +656,12 @@ export async function identificarProdutoDaEtiqueta({
   let lastStatus = '-';
   let lastSummary = 'Sem correspondência';
 
-  // 2. Flow 1 — Commercial Barcode (GS1 Brasil 789/790 ou EAN-8, timeout 6.5s + 1 retry rápido em 5xx/rede)
+  // 2. Flow 1 — Commercial Barcode (GS1 Brasil 789/790 ou EAN-8, timeout 6.5s + 1 retry rápido em 5xx/rede + fallback Open Products Facts em 404)
   if (commercialBarcode) {
-    const url = `https://world.openfoodfacts.org/api/v2/product/${cleanBarcode}.json?fields=product_name,product_name_pt,generic_name_pt,brands,categories_tags,quantity`;
-    lastRoute = 'Fluxo 1: EAN API v2';
+    const offFields =
+      'product_name,product_name_pt,generic_name_pt,brands,categories_tags,quantity';
+    const url = `https://world.openfoodfacts.org/api/v2/product/${cleanBarcode}.json?fields=${offFields}`;
+    lastRoute = 'Fluxo 1: Open Food Facts v2';
     lastUrl = url;
 
     let res = await fetchJsonWithTimeout(url, FETCH_TIMEOUT_MS);
@@ -647,9 +676,27 @@ export async function identificarProdutoDaEtiqueta({
     }
     lastStatus = res.status;
 
-    if (res.ok && res.data?.status === 1 && res.data?.product) {
+    let activeRes = res;
+    let activeUrl = url;
+    let activeRoute = lastRoute;
+
+    // Fallback secundário gratuito (Open Products Facts) quando OFF retorna 404 ou status != 1 (itens não-alimentícios como filtros, limpeza, higiene)
+    const offNotFound =
+      res.status === 404 || (res.ok && res.data?.status !== 1);
+    if (offNotFound) {
+      const opfUrl = `https://world.openproductsfacts.org/api/v2/product/${cleanBarcode}.json?fields=${offFields}`;
+      const opfRes = await fetchJsonWithTimeout(opfUrl, FETCH_TIMEOUT_MS);
+      activeRes = opfRes;
+      activeUrl = opfUrl;
+      activeRoute = 'Fluxo 1b: Open Products Facts (Fallback 404)';
+      lastRoute = `OFF ${res.status} -> ${activeRoute}`;
+      lastUrl = opfUrl;
+      lastStatus = opfRes.status;
+    }
+
+    if (activeRes.ok && activeRes.data?.status === 1 && activeRes.data?.product) {
       const normalized = normalizeOffProduct(
-        res.data.product,
+        activeRes.data.product,
         cleanBarcode,
         'api'
       );
@@ -673,19 +720,19 @@ export async function identificarProdutoDaEtiqueta({
         );
         await appendDiagnosticLog({
           ...baseLog,
-          routeTaken: lastRoute,
-          requestUrl: url,
-          httpStatus: res.status,
+          routeTaken: activeRoute,
+          requestUrl: activeUrl,
+          httpStatus: activeRes.status,
           durationMs,
           apiResultSummary: `status: 1 - ${display}`,
           finalOrigin: 'api',
         });
         return {
           ...normalized,
-          httpStatus: res.status,
+          httpStatus: activeRes.status,
           durationMs,
-          routeTaken: lastRoute,
-          rawPayload: res.data?.product || res.data || null,
+          routeTaken: activeRoute,
+          rawPayload: activeRes.data?.product || activeRes.data || null,
         };
       }
 
@@ -700,25 +747,25 @@ export async function identificarProdutoDaEtiqueta({
               ? mapCategoryFromProduct(safeLocalName, [])
               : 'Outros',
         origem: 'ocr_local',
-        httpStatus: res.status,
+        httpStatus: activeRes.status,
         durationMs: Date.now() - startedAtMs,
-        routeTaken: `${lastRoute} (nome numérico rejeitado)`,
-        rawPayload: res.data?.product || res.data || null,
+        routeTaken: `${activeRoute} (nome numérico rejeitado)`,
+        rawPayload: activeRes.data?.product || activeRes.data || null,
       };
       await appendDiagnosticLog({
         ...baseLog,
         routeTaken: fallbackWithApiMeta.routeTaken,
-        requestUrl: url,
-        httpStatus: res.status,
+        requestUrl: activeUrl,
+        httpStatus: activeRes.status,
         durationMs: fallbackWithApiMeta.durationMs,
         apiResultSummary: `Nome da API rejeitado (numérico/curto) — mantido OCR: "${safeLocalName || '(vazio)'}" (${fallbackWithApiMeta.categoriaSugerida})`,
         finalOrigin: 'ocr_local',
       });
       return fallbackWithApiMeta;
-    } else if (res.ok) {
-      lastSummary = `status: ${res.data?.status ?? 0} (não encontrado)`;
+    } else if (activeRes.ok) {
+      lastSummary = `status: ${activeRes.data?.status ?? 0} (não encontrado)`;
     } else {
-      lastSummary = res.errorMessage || 'Erro na requisição EAN';
+      lastSummary = activeRes.errorMessage || 'Erro na requisição EAN';
     }
   }
 
