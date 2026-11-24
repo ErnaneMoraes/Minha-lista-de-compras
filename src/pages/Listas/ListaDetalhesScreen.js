@@ -763,13 +763,18 @@ export default function ListaDetalhesScreen({ route, navigation }) {
         const savedCategory = normalizeCategoryName(itemData.category);
         const savedUnit = itemData.unit || 'un';
 
-        const nameStatus = !snap.name
-          ? 'Inserido manualmente (OCR vazio)'
-          : savedName === snap.name.trim()
-            ? snap.sourceOrigin === 'api' || snap.sourceOrigin === 'cache'
-              ? 'Automático (API/Cache)'
-              : 'Automático (OCR)'
-            : 'Editado manualmente';
+        const usedVoiceName = itemData.nameInputOrigin === 'voice';
+        const nameStatus = usedVoiceName
+          ? !snap.name
+            ? 'Ditado por voz (OCR vazio)'
+            : 'Editado por voz'
+          : !snap.name
+            ? 'Inserido manualmente (OCR vazio)'
+            : savedName === snap.name.trim()
+              ? snap.sourceOrigin === 'api' || snap.sourceOrigin === 'cache'
+                ? 'Automático (API/Cache)'
+                : 'Automático (OCR)'
+              : 'Editado manualmente';
 
         const priceStatus =
           snap.price <= 0
@@ -802,6 +807,7 @@ export default function ListaDetalhesScreen({ route, navigation }) {
           hasPrice: (Number(itemData.price) || 0) > 0,
           category: normalizeCategoryName(itemData.category),
           unit: itemData.unit || 'un',
+          usedVoiceName: itemData.nameInputOrigin === 'voice',
         }).catch(() => {});
       }
     }

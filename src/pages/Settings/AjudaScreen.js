@@ -41,8 +41,8 @@ const HELP_SECTIONS = [
     title: '2. Modos de Preenchimento de Produtos',
     steps: [
       {
-        label: 'Adicionar manualmente:',
-        text: 'Toque no botão central "+ Adicionar Produto", digite o nome e o preço. O app sugere automaticamente a categoria (ex.: Hortifruti, Mercearia, Farmácia) e aprende se você escolher outra categoria.',
+        label: 'Adicionar manualmente ou ditar o nome por voz:',
+        text: 'Toque no botão central "+ Adicionar Produto", digite o nome e o preço — ou toque no ícone de microfone ao lado de "Nome do produto" para ditar o nome em português (disponível no APK instalado). O app formata o texto, sugere automaticamente a categoria (ex.: Hortifruti, Mercearia, Farmácia) e aprende se você escolher outra categoria.',
       },
       {
         label: 'Ajustar quantidades rapidamente:',

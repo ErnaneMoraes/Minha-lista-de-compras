@@ -1,11 +1,21 @@
-export const APP_VERSION = '1.0.5';
-export const APP_BUILD_TAG = '2026.11.23-apk-script';
+export const APP_VERSION = '1.0.6';
+export const APP_BUILD_TAG = '2026.11.23-voice-name';
 
 /**
  * Histórico de atualizações (mais recente no topo).
- * Para futuras versões (1.0.6, 1.1.0, etc.), basta adicionar uma nova entrada no início do array.
+ * Para futuras versões (1.0.7, 1.1.0, etc.), basta adicionar uma nova entrada no início do array.
  */
 export const APP_CHANGELOG = [
+  {
+    version: '1.0.6',
+    date: '23/11/2026',
+    title: 'Ditado por Voz no Campo Nome do Produto',
+    highlights: [
+      'Adicionado botão de microfone exclusivo ao lado do campo "Nome do produto" no formulário de itens (adição manual, edição e conferência pós-câmera) com reconhecimento de voz em português (pt-BR).',
+      'Feedback visual pulsante ("Ouvindo... fale o nome do produto"), transcrição parcial em tempo real, capitalização automática e sugestão inteligente de categoria após o ditado.',
+      'Fallback gracioso em PT-BR quando executado em ambientes sem módulo nativo de voz (como Expo Go) e encerramento automático do microfone ao fechar o modal.',
+    ],
+  },
   {
     version: '1.0.5',
     date: '23/11/2026',

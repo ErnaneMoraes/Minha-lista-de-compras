@@ -2,7 +2,7 @@
   "expo": {
     "name": "Minha Lista de Compras",
     "slug": "minha-lista-de-compras",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -105,7 +105,14 @@
       "expo-asset",
       "expo-status-bar",
       "@react-native-community/datetimepicker",
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Permitir que o Minha Lista de Compras use o microfone para ditar o nome dos produtos.",
+          "speechRecognitionPermission": "Permitir que o Minha Lista de Compras converta sua fala em texto para preencher o nome do produto."
+        }
+      ]
     ],
     "web": {
       "favicon": "./assets/favicon.png",

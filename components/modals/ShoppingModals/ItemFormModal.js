@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Modal,
   View,
@@ -8,6 +8,8 @@ import {
   ScrollView,
   Image,
   StyleSheet,
+  Alert,
+  Animated,
 } from 'react-native';
 import { FontAwesome6 } from '@expo/vector-icons';
 import ModalStyle from '../../StyleSheet/ModalStyle';
@@ -17,6 +19,12 @@ import SaveButton from '../../common/Buttons/SaveButton';
 import TagPhotoPreviewModal from './TagPhotoPreviewModal';
 import { useAppSettings } from '../../../src/context/AppSettingsContext';
 import { getTagPhotoUri } from '../../../src/services/tagPhotoStorage';
+import {
+  startVoiceNameDictation,
+  stopVoiceNameDictation,
+  abortVoiceNameDictation,
+  formatTranscribedProductName,
+} from '../../../src/services/voiceInputService';
 import {
   CATEGORIES,
   UNITS,
@@ -41,8 +49,14 @@ export default function ItemFormModal({
   onClose,
   onSubmit,
 }) {
-  const { colors, radiusCard, radiusButton, radiusInput, borderWidth } =
-    useAppSettings();
+  const {
+    colors,
+    radiusCard,
+    radiusButton,
+    radiusInput,
+    borderWidth,
+    isMaterialYouTheme,
+  } = useAppSettings();
   const [name, setName] = useState('');
   const [quantity, setQuantity] = useState('1');
   const [unit, setUnit] = useState('un');
@@ -53,6 +67,55 @@ export default function ItemFormModal({
   const [error, setError] = useState('');
   const [showPhotoPreview, setShowPhotoPreview] = useState(false);
   const [photoLoadError, setPhotoLoadError] = useState(false);
+  const [isListeningVoice, setIsListeningVoice] = useState(false);
+  const [voiceFeedback, setVoiceFeedback] = useState('');
+  const [usedVoiceForName, setUsedVoiceForName] = useState(false);
+
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const categoryRef = useRef('Outros');
+  const hasManualCategoryRef = useRef(false);
+  const isApiLockedCategoryRef = useRef(false);
+
+  useEffect(() => {
+    categoryRef.current = category;
+  }, [category]);
+
+  useEffect(() => {
+    hasManualCategoryRef.current = hasManualCategory;
+  }, [hasManualCategory]);
+
+  useEffect(() => {
+    if (!isListeningVoice) {
+      pulseAnim.stopAnimation();
+      pulseAnim.setValue(1);
+      return undefined;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.12,
+          duration: 550,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 550,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => {
+      loop.stop();
+      pulseAnim.setValue(1);
+    };
+  }, [isListeningVoice, pulseAnim]);
+
+  useEffect(() => {
+    return () => {
+      abortVoiceNameDictation();
+    };
+  }, []);
 
   useEffect(() => {
     loadLearnedCategories();
@@ -82,6 +145,11 @@ export default function ItemFormModal({
         setUnit(initialItem.unit || 'un');
         setCategory(smartCat);
         setHasManualCategory(Boolean(initialItem.id && smartCat !== 'Outros'));
+        isApiLockedCategoryRef.current = Boolean(
+          (initialItem.lookupOrigin === 'api' ||
+            initialItem.lookupOrigin === 'cache') &&
+            smartCat !== 'Outros'
+        );
         setPriceMasked(numberToBRLMask(basePrice));
         setDescription(initialItem.description ?? initialItem.notes ?? '');
       } else {
@@ -90,13 +158,87 @@ export default function ItemFormModal({
         setUnit('un');
         setCategory('Outros');
         setHasManualCategory(false);
+        isApiLockedCategoryRef.current = false;
         setPriceMasked('');
         setDescription('');
       }
       setError('');
       setPhotoLoadError(false);
+      setIsListeningVoice(false);
+      setVoiceFeedback('');
+      setUsedVoiceForName(false);
+    } else {
+      abortVoiceNameDictation();
+      setIsListeningVoice(false);
+      setVoiceFeedback('');
     }
   }, [visible, initialItem]);
+
+  const handleToggleVoiceName = async () => {
+    if (isListeningVoice) {
+      stopVoiceNameDictation();
+      setIsListeningVoice(false);
+      return;
+    }
+
+    setVoiceFeedback('');
+    setError('');
+
+    const { started } = await startVoiceNameDictation({
+      onStart: () => {
+        setIsListeningVoice(true);
+        setVoiceFeedback('');
+      },
+      onInterimResult: (partialText) => {
+        const formatted = formatTranscribedProductName(partialText);
+        if (formatted) {
+          setName(formatted);
+        }
+      },
+      onFinalResult: (finalText) => {
+        const formatted = formatTranscribedProductName(finalText);
+        if (!formatted) return;
+        setName(formatted);
+        setUsedVoiceForName(true);
+        if (error) setError('');
+        const canAutoCategorize =
+          categoryRef.current === 'Outros' ||
+          (!hasManualCategoryRef.current && !isApiLockedCategoryRef.current);
+        if (canAutoCategorize) {
+          const suggested = inferCategorySmart(formatted);
+          if (suggested) {
+            setCategory(suggested);
+          }
+        }
+      },
+      onEnd: () => {
+        setIsListeningVoice(false);
+      },
+      onError: ({ code, message }) => {
+        setIsListeningVoice(false);
+        if (
+          code === 'unavailable' ||
+          code === 'not-allowed' ||
+          code === 'service-not-allowed'
+        ) {
+          Alert.alert('Ditado por Voz', message);
+        } else {
+          setVoiceFeedback(message);
+        }
+      },
+    });
+
+    if (started) {
+      setIsListeningVoice(true);
+    }
+  };
+
+  const handleCloseModal = () => {
+    abortVoiceNameDictation();
+    setIsListeningVoice(false);
+    setVoiceFeedback('');
+    onClose?.();
+  };
 
   const handleNameChange = (text) => {
     setName(text);
@@ -130,6 +272,10 @@ export default function ItemFormModal({
   };
 
   const handleSave = async () => {
+    if (isListeningVoice) {
+      abortVoiceNameDictation();
+      setIsListeningVoice(false);
+    }
     const trimmedName = name.trim();
     if (!trimmedName) {
       setError('Informe o nome do produto.');
@@ -160,6 +306,7 @@ export default function ItemFormModal({
       price: parsedPrice,
       description: description.trim(),
       notes: description.trim(),
+      nameInputOrigin: usedVoiceForName ? 'voice' : 'typed',
       sourceReminderId: initialItem?.sourceReminderId || null,
       ...(initialItem?.photoFilename
         ? {
@@ -191,7 +338,7 @@ export default function ItemFormModal({
       animationType="fade"
       transparent={true}
       visible={visible}
-      onRequestClose={onClose}
+      onRequestClose={handleCloseModal}
     >
       <View style={ModalStyle.modalCenteredView}>
         <View
@@ -354,13 +501,88 @@ export default function ItemFormModal({
               >
                 Nome do produto *
               </Text>
-              <TextInput
-                style={[globalStyles.input, inputThemeStyle]}
-                placeholder="Ex: Dipirona, Leite, Sabonete, Arroz..."
-                placeholderTextColor={colors.textMuted}
-                value={name}
-                onChangeText={handleNameChange}
-              />
+              <View style={localStyles.nameInputRow}>
+                <TextInput
+                  style={[
+                    globalStyles.input,
+                    inputThemeStyle,
+                    localStyles.nameInputFlex,
+                    isListeningVoice && { borderColor: colors.logoutRed },
+                  ]}
+                  placeholder="Ex: Dipirona, Leite, Sabonete, Arroz..."
+                  placeholderTextColor={colors.textMuted}
+                  value={name}
+                  onChangeText={(text) => {
+                    if (voiceFeedback) setVoiceFeedback('');
+                    handleNameChange(text);
+                  }}
+                />
+                <Animated.View
+                  style={{
+                    transform: [{ scale: pulseAnim }],
+                    marginLeft: 8,
+                  }}
+                >
+                  <TouchableOpacity
+                    activeOpacity={0.82}
+                    onPress={handleToggleVoiceName}
+                    style={[
+                      localStyles.voiceMicBtn,
+                      {
+                        backgroundColor: isListeningVoice
+                          ? colors.logoutRed
+                          : colors.verdeSuave,
+                        borderColor: isListeningVoice
+                          ? colors.logoutRed
+                          : colors.principal,
+                        borderRadius: isMaterialYouTheme
+                          ? 999
+                          : Math.min(14, radiusButton),
+                        borderWidth,
+                      },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      isListeningVoice
+                        ? 'Parar ditado por voz'
+                        : 'Ditar nome do produto'
+                    }
+                  >
+                    <FontAwesome6
+                      name={isListeningVoice ? 'stop' : 'microphone'}
+                      size={16}
+                      color={isListeningVoice ? '#FFFFFF' : colors.principal}
+                    />
+                  </TouchableOpacity>
+                </Animated.View>
+              </View>
+              {isListeningVoice ? (
+                <View style={localStyles.voiceStatusRow}>
+                  <View
+                    style={[
+                      localStyles.voiceRecordingDot,
+                      { backgroundColor: colors.logoutRed },
+                    ]}
+                  />
+                  <Text
+                    style={[
+                      localStyles.voiceStatusText,
+                      { color: colors.logoutRed },
+                    ]}
+                  >
+                    Ouvindo... fale o nome do produto
+                  </Text>
+                </View>
+              ) : voiceFeedback ? (
+                <Text
+                  style={[
+                    localStyles.voiceFeedbackText,
+                    { color: colors.warningText || colors.textMuted },
+                  ]}
+                >
+                  {voiceFeedback}
+                </Text>
+              ) : null}
             </View>
 
             {requirePrice ? (
@@ -632,7 +854,10 @@ export default function ItemFormModal({
           </ScrollView>
 
           <View style={ModalStyle.modalButtonContainer}>
-            <CancelButton onPress={onClose} style={ModalStyle.modalButton} />
+            <CancelButton
+              onPress={handleCloseModal}
+              style={ModalStyle.modalButton}
+            />
             <SaveButton onPress={handleSave} style={ModalStyle.modalButton} />
           </View>
         </View>
@@ -656,6 +881,41 @@ const localStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     width: '100%',
+  },
+  nameInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+  },
+  nameInputFlex: {
+    flex: 1,
+    marginBottom: 0,
+  },
+  voiceMicBtn: {
+    width: 48,
+    height: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  voiceStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  voiceRecordingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  voiceStatusText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+  },
+  voiceFeedbackText: {
+    fontSize: 12,
+    marginTop: 5,
+    lineHeight: 16,
   },
   singleLineLabel: {
     fontSize: 15,

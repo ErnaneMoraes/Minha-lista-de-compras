@@ -163,17 +163,20 @@ export async function recordManualItemAddLog({
   hasPrice = false,
   category = 'Outros',
   unit = 'un',
+  usedVoiceName = false,
 } = {}) {
   await appendEntry({
     category: 'scanner',
     eventType: 'manual_add',
-    routeTaken: '[ADIÇÃO MANUAL]',
+    routeTaken: usedVoiceName ? '[ADIÇÃO MANUAL / VOZ]' : '[ADIÇÃO MANUAL]',
     detectedBarcode: '-',
-    rawTextSnippet: 'Cadastro sem câmera',
+    rawTextSnippet: usedVoiceName
+      ? 'Nome preenchido por ditado de voz (pt-BR)'
+      : 'Cadastro sem câmera',
     sanitizedText: `Preço informado: ${hasPrice ? 'Sim' : 'Não'}`,
     apiResultSummary: `Categoria: ${category} | Unidade: ${unit}`,
     httpStatus: 'Local',
-    finalOrigin: 'manual',
+    finalOrigin: usedVoiceName ? 'voice_name' : 'manual',
   });
 }
 
